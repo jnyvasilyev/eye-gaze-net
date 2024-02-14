@@ -45,8 +45,7 @@ class ECCNet(nn.Module):
         self.upconv_block2 = ResidualConvBlock(128 + 64, 64)
         self.upconv_block1 = ResidualConvBlock(64 + 32, 32)
 
-        self.out_flow = nn.Conv2d(32, 2, kernel_size=3, padding=1)
-        self.out_brightness = nn.Conv2d(32, 1, kernel_size=3, padding=1)
+        self.out = nn.Conv2d(32, 3, kernel_size = 3, padding=1)
 
     def forward(self, img, angle):
         x = torch.cat([img, angle], dim=1)
@@ -71,9 +70,11 @@ class ECCNet(nn.Module):
         x = torch.cat([x, x1], dim=1)
         x = self.upconv_block1(x)
 
-        flow = self.out_flow(x)
-        brightness = torch.sigmoid(self.out_brightness(x))
-        return flow, brightness
+        output = self.out(x)
+        flow = output[:, :2, :, :]
+        brightness_map = torch.sigmoid(output[:, 2, :, :])
+
+        return flow, brightness_map
 
 # Create the model
 model = ECCNet()
