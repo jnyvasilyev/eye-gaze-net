@@ -54,7 +54,7 @@ def display_image(tensor):
     if tensor.is_cuda:
         tensor = tensor.cpu()
 
-    # make grid (2 rows and 5 columns) to display our 10 images
+    # make grid (2 rows and 5 columns) to display image batch
     grid_img = torchvision.utils.make_grid(tensor, nrow=5)
 
     plt.imshow(grid_img.permute(1, 2, 0))
