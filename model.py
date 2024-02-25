@@ -72,7 +72,7 @@ class ECCNet(nn.Module):
 
         output = self.out(x)
         flow = output[:, :2, :, :]
-        brightness_map = torch.sigmoid(output)
+        brightness_map = torch.sigmoid(output[:, 2, :, :].unsqueeze(1))
 
         return flow.permute(0, 2, 3, 1), brightness_map
 
