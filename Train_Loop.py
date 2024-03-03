@@ -107,7 +107,7 @@ def get_filename_info(filename):
 
 
 test_filename = (
-    "../dataset/UnityEyes_Windows/imgs_2_cutouts/ID1_Tgaussian_N001_F1_V0.00_H0.02.json"
+    "dataset/UnityEyes_Windows/imgs_2_cutouts/ID1_Tgaussian_N001_F1_V0.00_H0.02.json"
 )
 info_dict = get_filename_info(test_filename)
 
@@ -185,10 +185,8 @@ vecs_list_full = []
 input_filename_list = [
     "imgs_1_cutouts",
     "imgs_2_cutouts",
-    "imgs_3_cutouts",
-    "imgs_4_cutouts",
 ]
-input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
+input_file_path = os.path.join(os.getcwd(), "dataset", "UnityEyes_Windows")
 
 print("Reading dataset")
 for input_fn in tqdm(input_filename_list):
@@ -200,14 +198,17 @@ for input_fn in tqdm(input_filename_list):
 
 
 # In[10]:
-
-
 imgs_list_full = np.concatenate(np.concatenate(imgs_list_full))
 vecs_list_full = np.concatenate(np.concatenate(vecs_list_full))
 
-# Shuffle the lists. This takes a while
-np.random.shuffle(imgs_list_full)
-np.random.shuffle(vecs_list_full)
+def unison_shuffled_copies(a, b):
+    assert len(a) == len(b)
+    p = np.random.permutation(len(a))
+    return a[p], b[p]
+
+
+imgs_list_full, vecs_list_full = unison_shuffled_copies(imgs_list_full, vecs_list_full)
+
 
 
 # In[11]:
@@ -285,7 +286,15 @@ weight_reconstruction_loss = 0.2
 
 printout_freq = 1
 save_ckpt_freq = 1
+
 train_checkpoint_path = "./checkpoints"
+os.makedirs(train_checkpoint_path, exist_ok=True)
+
+images_directory_path = "./images"
+os.makedirs(images_directory_path, exist_ok=True)
+
+progress_plot_path = "./progress"
+os.makedirs(progress_plot_path, exist_ok = True)
 start_time = time.time()
 
 warp = WarpImageWithFlowAndBrightness(next(iter(train_loader))[0])
