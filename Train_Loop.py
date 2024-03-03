@@ -18,6 +18,7 @@ from tqdm import tqdm
 
 from model import model
 from warp import WarpImageWithFlowAndBrightness
+from warp import save_image
 
 
 # In[14]:
@@ -292,6 +293,11 @@ warp = WarpImageWithFlowAndBrightness(next(iter(train_loader))[0])
 train_losses, valid_losses, epochs = [], [], []
 
 pbar = tqdm(range(num_epochs))
+
+# Placeholders for displaying last batch of images
+img_corr_display = None
+target_display = None
+
 for epoch in pbar:
     epoch_start_time = time.time()
     model.train()
@@ -320,6 +326,14 @@ for epoch in pbar:
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        img_corr_display = img_corr
+        target_display = targets
+    
+    if epoch == num_epochs - 1:
+        save_image(img_corr_display, f"./images/img_corr_epoch_{epoch+1}.png")
+        save_image(target_display, f"./images/targets_epoch_{epoch+1}.png")
+        
     train_losses.append(train_loss / len(train_loader))
 
     model.eval()

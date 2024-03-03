@@ -41,12 +41,13 @@ class WarpImageWithFlowAndBrightness:
         return adjusted_images
 
 # Use to make sure batch of images is in proper input format or warped correctly
-def display_image(tensor):
+def save_image(tensor, filename="image_grid.png"):
     """
-    Display a tensor as an image.
+    Save a tensor as an image grid to a PNG file.
     
     Parameters:
     - tensor: A PyTorch tensor of shape [N, C, H, W]
+    - filename: String, the filename to save the image as
     """
     # Check if tensor needs to be detached and moved to CPU
     if tensor.requires_grad:
@@ -54,10 +55,22 @@ def display_image(tensor):
     if tensor.is_cuda:
         tensor = tensor.cpu()
 
-    # make grid (2 rows and 5 columns) to display image batch
+    # Make grid (2 rows and 5 columns) to display image batch
     grid_img = torchvision.utils.make_grid(tensor, nrow=5)
 
-    plt.imshow(grid_img.permute(1, 2, 0))
+    # Convert the tensor to a numpy array and change data layout from C, H, W to H, W, C for displaying
+    np_grid_img = grid_img.permute(1, 2, 0).numpy()
+
+    # Display the image grid
+    plt.imshow(np_grid_img)
+    plt.axis('off')  # Turn off axis numbers and ticks
+
+    # Save the image grid to a file
+    plt.savefig(filename, bbox_inches='tight', pad_inches=0.0)
+    plt.close()  # Close the plot to prevent it from displaying in notebooks or environments
+
+# Example usage:
+# save_image(your_tensor, "your_filename.png")
 
 '''
 warp = WarpImageWithFlowAndBrightness(initial_images)
