@@ -1,0 +1,16 @@
+name: ecc
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - cudatoolkit=11.6
+  - python=3.10
+  - pip=22.3.1
+  - pytorch=1.12.1
+  - torchvision=0.13.1
+  - tqdm
+  - matplotlib
+  - opencv
+  - numpy
+  - pillow
