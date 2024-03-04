@@ -31,6 +31,27 @@ class ResidualConvBlock(nn.Module):
         out = torch.add(out, residual)
         out = self.conv3(out)
         return out
+    
+class UpsampleConvLayer(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride = 1, upsample=2):
+        super(UpsampleConvLayer, self).__init__()
+        self.upsample = upsample
+        self.kernel_size = kernel_size
+        if upsample:
+            self.upsample = nn.Upsample(scale_factor=upsample, mode='nearest')
+        reflection_padding = kernel_size // 2
+        self.reflection_pad = nn.ReflectionPad2d(reflection_padding)
+        self.conv2d = nn.Conv2d(in_channels, out_channels, kernel_size, stride)
+
+    def forward(self, x):
+        if self.upsample:
+            x = self.upsample(x)  
+        if(self.kernel_size != 2):
+            x = self.reflection_pad(x)
+        else:
+            x = F.pad(x, (0, 1, 0, 1), mode = 'replicate')
+        out = self.conv2d(x)
+        return out
 
 class ECCNet(nn.Module):
     def __init__(self):
@@ -41,36 +62,48 @@ class ECCNet(nn.Module):
         self.conv_block3 = ResidualConvBlock(64, 128)
         self.conv_block4 = ResidualConvBlock(128, 256)
 
-        self.upconv_block3 = ResidualConvBlock(256 + 128, 128)
-        self.upconv_block2 = ResidualConvBlock(128 + 64, 64)
-        self.upconv_block1 = ResidualConvBlock(64 + 32, 32)
+        self.upconv_block3 = ResidualConvBlock(256, 256)
+        self.upconv_block2 = ResidualConvBlock(128 + 128, 128)
+        self.upconv_block1 = ResidualConvBlock(64 + 64, 32)
 
-        self.out = nn.Conv2d(32, 3, kernel_size = 3, padding=1)
+        self.upconv_3 = UpsampleConvLayer(256, 128, 3)
+        self.upconv_2 = UpsampleConvLayer(128, 64, 3)
+
+        self.final_upconv_2 = UpsampleConvLayer(32, 16, 2)
+        self.final_upconv_1 = UpsampleConvLayer(16, 8, 2)
+
+        self.out = nn.Conv2d(8, 3, 3, padding=1)
 
     def forward(self, img, angle):
         x = torch.cat([img, angle], dim=1)
 
         # Encoder
         x1 = self.conv_block1(x)
-        x2 = F.max_pool2d(x1, 2)
-        x2 = self.conv_block2(x2)
-        x3 = F.max_pool2d(x2, 2)
-        x3 = self.conv_block3(x3)
-        x4 = F.max_pool2d(x3, 2)
-        x4 = self.conv_block4(x4)
+        x1 = F.max_pool2d(x1, 2)
+        x2 = self.conv_block2(x1)
+        x2 = F.max_pool2d(x2, 2)
+        x3 = self.conv_block3(x2)
+        x3 = F.max_pool2d(x3, 2)
+        x4 = self.conv_block4(x3)
+        x4 = F.max_pool2d(x4, 2)
+        x5 = self.upconv_block3(x4)
+        x5 = self.upconv_3(x5)
+
 
         # Decoder with skip connections
-        x = F.interpolate(x4, scale_factor=2, mode='nearest')
-        x = torch.cat([x, x3], dim=1)
-        x = self.upconv_block3(x)
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
-        x = torch.cat([x, x2], dim=1)
+        x = torch.cat([x5, x3], dim=1)
         x = self.upconv_block2(x)
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
-        x = torch.cat([x, x1], dim=1)
+        x = self.upconv_2(x)
+        x = torch.cat([x, x2], dim=1)
         x = self.upconv_block1(x)
+        print(x.size())
+        x = self.final_upconv_2(x)
+        print(x.size())
+        x = self.final_upconv_1(x)
+        print(x.size())
 
         output = self.out(x)
+        print(output.size())
         flow = output[:, :2, :, :]
         brightness_map = torch.sigmoid(output[:, 2, :, :].unsqueeze(1))
 
