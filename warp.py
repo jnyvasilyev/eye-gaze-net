@@ -42,8 +42,6 @@ class WarpImageWithFlowAndBrightness:
             images, warped_grid, mode="bilinear", padding_mode="border"
         )
         adjusted_images = warped_images * brightness_map
-
-        adjusted_images = V.adjust_sharpness(adjusted_images, 3)
         return adjusted_images
 
 

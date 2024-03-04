@@ -152,74 +152,105 @@ def get_dataloader(input_file_path, input_filename_list, batch_size=800):
     imgs_list_full = []
     vecs_list_full = []
 
-    print("Reading dataset")
-    for input_fn in tqdm(input_filename_list):
-        print("Reading " + input_fn)
-        imgs_list_part, vecs_list_part = get_dataset(input_file_path, input_fn)
+    if os.path.exists("X_img_train.pt"):
+        print("Preprocessed dataset found. Loading...")
+        X_img_train = torch.load("X_img_train.pt")
+        X_angle_train = torch.load("X_angle_train.pt")
+        y_img_train = torch.load("y_img_train.pt")
+        y_angle_train = torch.load("y_angle_train.pt")
+        X_img_valid = torch.load("X_img_valid.pt")
+        X_angle_valid = torch.load("X_angle_valid.pt")
+        y_img_valid = torch.load("y_img_valid.pt")
+        y_angle_valid = torch.load("y_angle_valid.pt")
+        X_img_test = torch.load("X_img_test.pt")
+        X_angle_test = torch.load("X_angle_test.pt")
+        y_img_test = torch.load("y_img_test.pt")
+        y_angle_test = torch.load("y_angle_test.pt")
+    else:
+        print("Preprocessed tensors not available. Reading dataset")
+        for input_fn in tqdm(input_filename_list):
+            print("Reading " + input_fn)
+            imgs_list_part, vecs_list_part = get_dataset(input_file_path, input_fn)
 
-        imgs_list_full.append(imgs_list_part)
-        vecs_list_full.append(vecs_list_part)
+            imgs_list_full.append(imgs_list_part)
+            vecs_list_full.append(vecs_list_part)
 
-    # In[10]:
-    imgs_list_full = np.concatenate(np.concatenate(imgs_list_full))
-    vecs_list_full = np.concatenate(np.concatenate(vecs_list_full))
+        # In[10]:
+        imgs_list_full = np.concatenate(np.concatenate(imgs_list_full))
+        vecs_list_full = np.concatenate(np.concatenate(vecs_list_full))
 
-    def unison_shuffled_copies(a, b):
-        assert len(a) == len(b)
-        p = np.random.permutation(len(a))
-        return a[p], b[p]
+        def unison_shuffled_copies(a, b):
+            assert len(a) == len(b)
+            p = np.random.permutation(len(a))
+            return a[p], b[p]
 
-    print("Shuffling data")
-    imgs_list_full, vecs_list_full = unison_shuffled_copies(
-        imgs_list_full, vecs_list_full
-    )
+        print("Shuffling data")
+        imgs_list_full, vecs_list_full = unison_shuffled_copies(
+            imgs_list_full, vecs_list_full
+        )
 
-    print(f"Dataset size: {len(imgs_list_full)}")
+        print(f"Dataset size: {len(imgs_list_full)}")
 
-    # In[11]:
+        # In[11]:
 
-    # Create splits
-    num_samples = len(imgs_list_full)
-    splits = [0.7, 0.2, 0.1]
+        # Create splits
+        num_samples = len(imgs_list_full)
+        splits = [0.7, 0.2, 0.1]
 
-    X_img = imgs_list_full[:, 0, ...]
-    X_angle = vecs_list_full[:, 0, ...]
-    y_img = imgs_list_full[:, 1, ...]
-    y_angle = vecs_list_full[:, 1, ...]
+        X_img = imgs_list_full[:, 0, ...]
+        X_angle = vecs_list_full[:, 0, ...]
+        y_img = imgs_list_full[:, 1, ...]
+        y_angle = vecs_list_full[:, 1, ...]
 
-    X_img_train, X_img_valid, X_img_test = np.split(
-        X_img,
-        [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
-    )
-    X_angle_train, X_angle_valid, X_angle_test = np.split(
-        X_angle,
-        [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
-    )
-    y_img_train, y_img_valid, y_img_test = np.split(
-        y_img,
-        [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
-    )
-    y_angle_train, y_angle_valid, y_angle_test = np.split(
-        y_angle,
-        [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
-    )
+        X_img_train, X_img_valid, X_img_test = np.split(
+            X_img,
+            [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
+        )
+        X_angle_train, X_angle_valid, X_angle_test = np.split(
+            X_angle,
+            [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
+        )
+        y_img_train, y_img_valid, y_img_test = np.split(
+            y_img,
+            [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
+        )
+        y_angle_train, y_angle_valid, y_angle_test = np.split(
+            y_angle,
+            [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
+        )
 
-    # In[12]:
+        # In[12]:
 
-    X_img_train = torch.tensor(X_img_train, dtype=torch.int)
-    X_angle_train = torch.tensor(X_angle_train, dtype=torch.float32)
-    y_img_train = torch.tensor(y_img_train, dtype=torch.int)
-    y_angle_train = torch.tensor(y_angle_train, dtype=torch.int)
+        X_img_train = torch.tensor(X_img_train, dtype=torch.int)
+        X_angle_train = torch.tensor(X_angle_train, dtype=torch.float32)
+        y_img_train = torch.tensor(y_img_train, dtype=torch.int)
+        y_angle_train = torch.tensor(y_angle_train, dtype=torch.int)
 
-    X_img_valid = torch.tensor(X_img_valid, dtype=torch.int)
-    X_angle_valid = torch.tensor(X_angle_valid, dtype=torch.float32)
-    y_img_valid = torch.tensor(y_img_valid, dtype=torch.int)
-    y_angle_valid = torch.tensor(y_angle_valid, dtype=torch.int)
+        X_img_valid = torch.tensor(X_img_valid, dtype=torch.int)
+        X_angle_valid = torch.tensor(X_angle_valid, dtype=torch.float32)
+        y_img_valid = torch.tensor(y_img_valid, dtype=torch.int)
+        y_angle_valid = torch.tensor(y_angle_valid, dtype=torch.int)
 
-    X_img_test = torch.tensor(X_img_test, dtype=torch.int)
-    X_angle_test = torch.tensor(X_angle_test, dtype=torch.float32)
-    y_img_test = torch.tensor(y_img_test, dtype=torch.int)
-    y_angle_test = torch.tensor(y_angle_test, dtype=torch.int)
+        X_img_test = torch.tensor(X_img_test, dtype=torch.int)
+        X_angle_test = torch.tensor(X_angle_test, dtype=torch.float32)
+        y_img_test = torch.tensor(y_img_test, dtype=torch.int)
+        y_angle_test = torch.tensor(y_angle_test, dtype=torch.int)
+
+        print("Saving preprocessed tensors for future use.")
+        torch.save(X_img_train, "X_img_train.pt")
+        torch.save(X_angle_train, "X_angle_train.pt")
+        torch.save(y_img_train, "y_img_train.pt")
+        torch.save(y_angle_train, "y_angle_train.pt")
+
+        torch.save(X_img_valid, "X_img_valid.pt")
+        torch.save(X_angle_valid, "X_angle_valid.pt")
+        torch.save(y_img_valid, "y_img_valid.pt")
+        torch.save(y_angle_valid, "y_angle_valid.pt")
+
+        torch.save(X_img_test, "X_img_test.pt")
+        torch.save(X_angle_test, "X_angle_test.pt")
+        torch.save(y_img_test, "y_img_test.pt")
+        torch.save(y_angle_test, "y_angle_test.pt")
 
     train_dataset = TensorDataset(
         X_img_train, X_angle_train, y_img_train, y_angle_train
