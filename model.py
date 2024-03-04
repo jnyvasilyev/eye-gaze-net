@@ -2,10 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class DepthwiseSeparableConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=1):
         super(DepthwiseSeparableConv, self).__init__()
-        self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels)
+        self.depthwise = nn.Conv2d(
+            in_channels, in_channels, kernel_size, stride, padding, groups=in_channels
+        )
         self.pointwise = nn.Conv2d(in_channels, out_channels, 1, stride=1, padding=0)
         self.bn = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU()
@@ -16,6 +19,7 @@ class DepthwiseSeparableConv(nn.Module):
         x = self.bn(x)
         x = self.relu(x)
         return x
+
 
 class ResidualConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -52,6 +56,7 @@ class UpsampleConvLayer(nn.Module):
             x = F.pad(x, (0, 1, 0, 1), mode = 'replicate')
         out = self.conv2d(x)
         return out
+
 
 class ECCNet(nn.Module):
     def __init__(self):
@@ -96,18 +101,13 @@ class ECCNet(nn.Module):
         x = self.upconv_2(x)
         x = torch.cat([x, x2], dim=1)
         x = self.upconv_block1(x)
-        print(x.size())
         x = self.final_upconv_2(x)
-        print(x.size())
         x = self.final_upconv_1(x)
-        print(x.size())
 
         output = self.out(x)
-        print(output.size())
         flow = output[:, :2, :, :]
         brightness_map = torch.sigmoid(output[:, 2, :, :].unsqueeze(1))
 
         return flow.permute(0, 2, 3, 1), brightness_map
-
-# Create the model
+    
 model = ECCNet()
