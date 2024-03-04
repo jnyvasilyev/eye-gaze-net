@@ -322,8 +322,7 @@ def train(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
-        scheduler.step()
+            scheduler.step()
 
         train_losses.append(train_loss / len(train_loader))
 
