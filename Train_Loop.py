@@ -241,7 +241,9 @@ def get_model_optimizer(ckpt_iter):
     model.to(device)
     # model = nn.DataParallel(model) # Comment out if using only one GPU
     optimizer = optim.Adam(model.parameters(), lr=0.001, eps=0.1)
-    scheduler = optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.002, max_lr=0.01)
+    scheduler = optim.lr_scheduler.CyclicLR(
+        optimizer, base_lr=0.002, max_lr=0.01, cycle_momentum=False
+    )
     start = 0
 
     # Load checkpoint
