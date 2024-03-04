@@ -93,26 +93,19 @@ class ECCNet(nn.Module):
         x4 = self.conv_block4(x3)
         x4 = F.max_pool2d(x4, 2)
         x5 = self.upconv_block3(x4)
-        print(x5.size())
         x5 = self.upconv_3(x5)
-        print(x5.size())
 
 
         # Decoder with skip connections
         x = torch.cat([x5, x3], dim=1)
         x = self.upconv_block2(x)
         x = self.upconv_2(x)
-        print(x.size())
         x = torch.cat([x, x2], dim=1)
         x = self.upconv_block1(x)
-        print(x.size())
         x = self.final_upconv_2(x)
-        print(x.size())
         x = self.final_upconv_1(x)
-        print(x.size())
 
         output = self.out(x)
-        print(output.size())
         flow = output[:, :2, :, :]
         brightness_map = torch.sigmoid(output[:, 2, :, :].unsqueeze(1))
 
