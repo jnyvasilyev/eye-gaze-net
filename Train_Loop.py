@@ -240,7 +240,8 @@ def get_model_optimizer(ckpt_iter):
     model = ECCNet()
     model.to(device)
     # model = nn.DataParallel(model) # Comment out if using only one GPU
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001, eps=0.1)
+    scheduler = optim.lr_scheduler.CyclicLR(optimizer, base_lr=0.002, max_lr=0.01)
     start = 0
 
     # Load checkpoint
@@ -249,14 +250,15 @@ def get_model_optimizer(ckpt_iter):
         checkpoint = torch.load(ckpt_path)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        start = checkpoint["epoch"]
+        start = checkpoint["epoch"] + 1
 
-    return model, optimizer, start
+    return model, optimizer, scheduler, start
 
 
 def train(
     model,
     optimizer,
+    scheduler,
     train_loader,
     valid_loader,
     warp,
@@ -268,7 +270,7 @@ def train(
 ):
     print("Beginning training")
     printout_freq = 1
-    save_ckpt_freq = 25
+    save_ckpt_freq = 1
 
     train_checkpoint_path = "./checkpoints"
     os.makedirs(train_checkpoint_path, exist_ok=True)
@@ -319,8 +321,7 @@ def train(
             loss.backward()
             optimizer.step()
 
-            img_corr_display = img_corr.clone()
-            target_display = targets.clone()
+        scheduler.step()
 
         train_losses.append(train_loss / len(train_loader))
 
@@ -380,6 +381,8 @@ def train(
                 )
 
                 # Save example images
+                img_corr_display = img_corr.clone()
+                target_display = targets.clone()
                 save_image(
                     img_corr_display,
                     os.path.join(
@@ -468,10 +471,10 @@ def test(
             test_loss += loss.item()
 
             img_display = imgs.clone()
-            img_corr_display = img_corr.clone()
-            target_display = targets.clone()
 
         # Save example images
+        img_corr_display = img_corr.clone()
+        target_display = targets.clone()
         save_image(
             img_display,
             os.path.join(images_directory_path, f"img_og.png"),
@@ -497,6 +500,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"Using device {device}")
+    eccmodel, eccoptimizer, eccscheduler, start = get_model_optimizer(args.checkpoint)
     input_filename_list = [
         "imgs_1_cutouts",
         "imgs_2_cutouts",
@@ -506,14 +510,13 @@ if __name__ == "__main__":
     ]
     input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
     train_loader, valid_loader, test_loader = get_dataloader(
-        input_file_path, input_filename_list, 750
+        input_file_path, input_filename_list, 128
     )
-    eccmodel, eccoptimizer, start = get_model_optimizer(args.checkpoint)
 
     # Train settings
     warp = WarpImageWithFlowAndBrightness(next(iter(train_loader))[0])
     criterion = nn.MSELoss()
-    num_epochs = 100
+    num_epochs = 500
     weight_correction_loss = 0.8
     weight_reconstruction_loss = 0.2
 
@@ -521,14 +524,15 @@ if __name__ == "__main__":
         train(
             eccmodel,
             eccoptimizer,
+            eccscheduler,
             train_loader,
             valid_loader,
             warp,
             criterion,
-            start,
-            num_epochs,
-            weight_correction_loss,
-            weight_reconstruction_loss,
+            start_epoch=start,
+            num_epochs=num_epochs,
+            weight_correction_loss=weight_correction_loss,
+            weight_reconstruction_loss=weight_reconstruction_loss,
         )
     test(
         eccmodel,
