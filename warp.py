@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 import torchvision
+import torchvision.transforms.functional as V
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -41,6 +42,8 @@ class WarpImageWithFlowAndBrightness:
             images, warped_grid, mode="bilinear", padding_mode="border"
         )
         adjusted_images = warped_images * brightness_map
+
+        adjusted_images = V.adjust_sharpness(adjusted_images, 3)
         return adjusted_images
 
 
