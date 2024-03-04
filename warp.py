@@ -1,47 +1,84 @@
 import torch
 import torch.nn.functional as F
 from PIL import Image
+import torchvision.transforms.functional as V
 import torchvision
 import matplotlib.pyplot as plt
 import numpy as np
 
 
+import torch
+import torch.nn.functional as F
+
+
 class WarpImageWithFlowAndBrightness:
-    # Use before the training loop to save compute
-    # See bottom of file for example of where to put in training loop
     def __init__(self, images):
         """
-        Initialize warp class with torch grid
+        Initialize the WarpImage class.
 
-        Parameters:
-        - images: A PyTorch tensor of shape [N, C, H, W]
+        Args:
+            images (torch.Tensor): Input images of shape [N, C, H, W].
         """
-        N, C, H, W = images.size()
-        grid_y, grid_x = torch.meshgrid(
-            torch.linspace(-1, 1, H), torch.linspace(-1, 1, W), indexing="ij"
-        )
-        self.grid = torch.stack((grid_x, grid_y), 2).unsqueeze(0)  # Pre-compute grid
+        self.H, self.W = images.shape[2], images.shape[3]
+        self.grid_x, self.grid_y = torch.meshgrid(torch.arange(self.W), torch.arange(self.H))
+        self.grid_x = self.grid_x.to(torch.float32)
+        self.grid_y = self.grid_y.to(torch.float32)
 
-    #
     def __call__(self, images, flow_map, brightness_map):
         """
-        Warp batch of images using model-outputted flow_map and brightness_map.
+        Warps input images based on flow and brightness maps.
 
-        Parameters:
-        - images: A PyTorch tensor of shape [N, C, H, W]
-        - flow_map: A PyTorch tensor of shape [N, H, W, 2]
-            note: model.py now outputs flow_map with above shape, so no change needed
-        - brightness_map: brightness map of shape [N, C, H, W]
+        Args:
+            images (torch.Tensor): Input images of shape [N, C, H, W].
+            flow_map (torch.Tensor): Flow map of shape [N, 2, H, W].
+            brightness_map (torch.Tensor): Brightness map of shape [N, 1, H, W].
 
         Returns:
-        - adjusted_images: A PyTorch tensor of shape [N, C, H, W]
+            torch.Tensor: Warped images.
         """
-        warped_grid = self.grid.to(images.device) + flow_map
-        warped_images = F.grid_sample(
-            images, warped_grid, mode="bilinear", padding_mode="border"
-        )
-        adjusted_images = warped_images * brightness_map
-        return adjusted_images
+        # Apply flow map to grid coordinates
+        flow_x = self.grid_x + flow_map[:, 0]
+        flow_y = self.grid_y + flow_map[:, 1]
+
+        # Normalize flow coordinates to [-1, 1]
+        flow_x_normalized = (2 * flow_x / (self.W - 1)) - 1
+        flow_y_normalized = (2 * flow_y / (self.H - 1)) - 1
+
+        # Sample pixels from input images using bilinear interpolation
+        warped_images = F.grid_sample(images, torch.stack((flow_x_normalized, flow_y_normalized), dim=-1), mode='bilinear', padding_mode='border')
+
+        # Apply brightness correction
+        warped_images *= brightness_map
+
+        warped_images = V.adjust_sharpness(warped_images, 3)
+
+        return warped_images
+
+def display_images(original_images, warped_images):
+    """
+    Display original and warped images side by side.
+
+    Args:
+        original_images (torch.Tensor): Original input images.
+        warped_images (torch.Tensor): Warped images.
+
+    Returns:
+        None
+    """
+    N = original_images.shape[0]  # Number of images
+    fig, axs = plt.subplots(N, 2, figsize=(10, 5 * N))
+
+    for i in range(N):
+        axs[i, 0].imshow(original_images[i].permute(1, 2, 0))
+        axs[i, 0].set_title(f"Original Image {i + 1}")
+        axs[i, 0].axis("off")
+
+        axs[i, 1].imshow(warped_images[i].permute(1, 2, 0))
+        axs[i, 1].set_title(f"Warped Image {i + 1}")
+        axs[i, 1].axis("off")
+
+    plt.tight_layout()
+    plt.show()
 
 
 # Use to make sure batch of images is in proper input format or warped correctly
@@ -94,4 +131,5 @@ for epoch in range(num_epochs):
         loss = loss_function(adjusted_images, labels)
         
         # Backpropagation, optimizer steps, etc.
+
 """
