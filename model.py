@@ -36,6 +36,7 @@ class ResidualConvBlock(nn.Module):
         out = self.conv3(out)
         return out
     
+'''
 class UpsampleConvLayer(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride = 1, upsample=2):
         super(UpsampleConvLayer, self).__init__()
@@ -56,7 +57,7 @@ class UpsampleConvLayer(nn.Module):
             x = F.pad(x, (0, 1, 0, 1), mode = 'replicate')
         out = self.conv2d(x)
         return out
-
+'''
 
 class ECCNet(nn.Module):
     def __init__(self):
@@ -71,11 +72,11 @@ class ECCNet(nn.Module):
         self.upconv_block2 = ResidualConvBlock(128 + 128, 128)
         self.upconv_block1 = ResidualConvBlock(64 + 64, 32)
 
-        self.upconv_3 = UpsampleConvLayer(256, 128, 3)
-        self.upconv_2 = UpsampleConvLayer(128, 64, 3)
+        self.upconv_3 = nn.ConvTranspose2d(256, 128, 3, stride=2, padding=1, output_padding=1)
+        self.upconv_2 = nn.ConvTranspose2d(128, 64, 3, stride=2, padding=1, output_padding=1)
 
-        self.final_upconv_2 = UpsampleConvLayer(32, 16, 2)
-        self.final_upconv_1 = UpsampleConvLayer(16, 8, 2)
+        self.final_upconv_2 = nn.ConvTranspose2d(32, 16, 2, stride=2)
+        self.final_upconv_1 = nn.ConvTranspose2d(16, 8, 2, stride=2)
 
         self.out = nn.Conv2d(8, 3, 3, padding=1)
 
@@ -92,19 +93,26 @@ class ECCNet(nn.Module):
         x4 = self.conv_block4(x3)
         x4 = F.max_pool2d(x4, 2)
         x5 = self.upconv_block3(x4)
+        print(x5.size())
         x5 = self.upconv_3(x5)
+        print(x5.size())
 
 
         # Decoder with skip connections
         x = torch.cat([x5, x3], dim=1)
         x = self.upconv_block2(x)
         x = self.upconv_2(x)
+        print(x.size())
         x = torch.cat([x, x2], dim=1)
         x = self.upconv_block1(x)
+        print(x.size())
         x = self.final_upconv_2(x)
+        print(x.size())
         x = self.final_upconv_1(x)
+        print(x.size())
 
         output = self.out(x)
+        print(output.size())
         flow = output[:, :2, :, :]
         brightness_map = torch.sigmoid(output[:, 2, :, :].unsqueeze(1))
 
