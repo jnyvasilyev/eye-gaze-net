@@ -2,10 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class DepthwiseSeparableConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=1):
         super(DepthwiseSeparableConv, self).__init__()
-        self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, groups=in_channels)
+        self.depthwise = nn.Conv2d(
+            in_channels, in_channels, kernel_size, stride, padding, groups=in_channels
+        )
         self.pointwise = nn.Conv2d(in_channels, out_channels, 1, stride=1, padding=0)
         self.bn = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU()
@@ -16,6 +19,7 @@ class DepthwiseSeparableConv(nn.Module):
         x = self.bn(x)
         x = self.relu(x)
         return x
+
 
 class ResidualConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -32,6 +36,7 @@ class ResidualConvBlock(nn.Module):
         out = self.conv3(out)
         return out
 
+
 class ECCNet(nn.Module):
     def __init__(self):
         super(ECCNet, self).__init__()
@@ -45,7 +50,7 @@ class ECCNet(nn.Module):
         self.upconv_block2 = ResidualConvBlock(128 + 64, 64)
         self.upconv_block1 = ResidualConvBlock(64 + 32, 32)
 
-        self.out = nn.Conv2d(32, 3, kernel_size = 3, padding=1)
+        self.out = nn.Conv2d(32, 3, kernel_size=3, padding=1)
 
     def forward(self, img, angle):
         x = torch.cat([img, angle], dim=1)
@@ -60,13 +65,13 @@ class ECCNet(nn.Module):
         x4 = self.conv_block4(x4)
 
         # Decoder with skip connections
-        x = F.interpolate(x4, scale_factor=2, mode='nearest')
+        x = F.interpolate(x4, scale_factor=2, mode="nearest")
         x = torch.cat([x, x3], dim=1)
         x = self.upconv_block3(x)
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        x = F.interpolate(x, scale_factor=2, mode="nearest")
         x = torch.cat([x, x2], dim=1)
         x = self.upconv_block2(x)
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        x = F.interpolate(x, scale_factor=2, mode="nearest")
         x = torch.cat([x, x1], dim=1)
         x = self.upconv_block1(x)
 
@@ -75,6 +80,3 @@ class ECCNet(nn.Module):
         brightness_map = torch.sigmoid(output[:, 2, :, :].unsqueeze(1))
 
         return flow.permute(0, 2, 3, 1), brightness_map
-
-# Create the model
-model = ECCNet()
