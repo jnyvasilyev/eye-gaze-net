@@ -27,13 +27,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 OUTPUT_DIR = "./output"
 
 
-def process_json_list(json_list):
-    ldmks = [eval(s) for s in json_list]
-    return np.array([(x, y, z) for (x, y, z) in ldmks])
-
-
 def get_filename_info(filename):
     info_dict = {}
+
+    # Get image data
+    img = cv2.cvtColor(cv2.imread("%s.jpg" % filename[:-5]), cv2.COLOR_BGR2RGB)
 
     # Get ID data
     titles_types = {"ID": int, "T": str, "N": int, "F": int, "V": float, "H": float}
@@ -41,6 +39,10 @@ def get_filename_info(filename):
     for title, info in zip(titles_types, info_list):
         info_dict[title] = titles_types[title](info[len(title) :])
     info_dict["target"] = info_dict["F"] == 1
+
+    def process_json_list(json_list):
+        ldmks = [eval(s) for s in json_list]
+        return np.array([(x, img.shape[0] - y, z) for (x, y, z) in ldmks])
 
     # Get json data
     json_data_file = open(filename)
@@ -57,30 +59,37 @@ def get_filename_info(filename):
     info_dict["iris"] = process_json_list(json_data["iris_2d"])  # iris landmarks
     json_data_file.close()
 
-    # Get image data
-    img = cv2.cvtColor(cv2.imread("%s.jpg" % filename[:-5]), cv2.COLOR_BGR2RGB)
-    eye_hor_range = (
-        np.max(info_dict["interior_margin"], axis=0)[0]
-        - np.min(info_dict["interior_margin"], axis=0)[0]
-    )
-    eye_vert_range = (
-        np.max(info_dict["interior_margin"], axis=0)[1]
-        - np.min(info_dict["interior_margin"], axis=0)[1]
-    )
-    if eye_hor_range // 2 > eye_vert_range:
-        eye_vert_range = eye_hor_range // 2
+    # Crop the eye
+    # Calculate bounding box
+    min_x = np.min(info_dict["interior_margin"], axis=0)[0]
+    min_y = np.min(info_dict["interior_margin"], axis=0)[1]
+    max_x = np.max(info_dict["interior_margin"], axis=0)[0]
+    max_y = np.max(info_dict["interior_margin"], axis=0)[1]
+
+    # Get bbox length
+    l = max_x - min_x
+    aspect_ratio = 2
+    width = 1.5 * l
+    height = max_y - min_y
+
+    # Calculate center of bbox
+    center_x = (min_x + max_x) / 2
+    center_y = (min_y + max_y) / 2
+
+    # Correct aspect ratio
+    if (width) / (height) > aspect_ratio:
+        # too wide. Expand height
+        height = width / aspect_ratio
     else:
-        eye_hor_range = eye_vert_range * 2
-    eyeball_center = np.array([300, 400])
-    range_coef = 2
+        # too tall. Expand width
+        width = height * aspect_ratio
+
+    # Resize to 64x32
     img_cropped = img[
-        eyeball_center[0]
-        - int(eye_vert_range // 2 * range_coef) : eyeball_center[0]
-        + int(eye_vert_range // 2 * range_coef),
-        eyeball_center[1]
-        - int(eye_hor_range // 2 * range_coef) : eyeball_center[1]
-        + int(eye_hor_range // 2 * range_coef),
+        int(center_y - (height / 2)) : int(center_y + (height / 2)),
+        int(center_x - (width / 2)) : int(center_x + (width / 2)),
     ]
+
     img = cv2.resize(img_cropped, (64, 32))
     img = np.transpose(img, (2, 0, 1))
     info_dict["img"] = img
