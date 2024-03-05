@@ -20,8 +20,11 @@ from tqdm import tqdm
 from model import ECCNet
 from warp import WarpImageWithFlowAndBrightness
 from warp import save_image
+from utils.loss_utils import misalignment_tolerant_mse_loss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+OUTPUT_DIR = "./output"
 
 
 def process_json_list(json_list):
@@ -152,20 +155,20 @@ def get_dataloader(input_file_path, input_filename_list, batch_size=800):
     imgs_list_full = []
     vecs_list_full = []
 
-    if os.path.exists("X_img_train.pt"):
+    if os.path.exists("preprocessed_data/X_img_train.pt"):
         print("Preprocessed dataset found. Loading...")
-        X_img_train = torch.load("X_img_train.pt")
-        X_angle_train = torch.load("X_angle_train.pt")
-        y_img_train = torch.load("y_img_train.pt")
-        y_angle_train = torch.load("y_angle_train.pt")
-        X_img_valid = torch.load("X_img_valid.pt")
-        X_angle_valid = torch.load("X_angle_valid.pt")
-        y_img_valid = torch.load("y_img_valid.pt")
-        y_angle_valid = torch.load("y_angle_valid.pt")
-        X_img_test = torch.load("X_img_test.pt")
-        X_angle_test = torch.load("X_angle_test.pt")
-        y_img_test = torch.load("y_img_test.pt")
-        y_angle_test = torch.load("y_angle_test.pt")
+        X_img_train = torch.load("preprocessed_data/X_img_train.pt")
+        X_angle_train = torch.load("preprocessed_data/X_angle_train.pt")
+        y_img_train = torch.load("preprocessed_data/y_img_train.pt")
+        y_angle_train = torch.load("preprocessed_data/y_angle_train.pt")
+        X_img_valid = torch.load("preprocessed_data/X_img_valid.pt")
+        X_angle_valid = torch.load("preprocessed_data/X_angle_valid.pt")
+        y_img_valid = torch.load("preprocessed_data/y_img_valid.pt")
+        y_angle_valid = torch.load("preprocessed_data/y_angle_valid.pt")
+        X_img_test = torch.load("preprocessed_data/X_img_test.pt")
+        X_angle_test = torch.load("preprocessed_data/X_angle_test.pt")
+        y_img_test = torch.load("preprocessed_data/y_img_test.pt")
+        y_angle_test = torch.load("preprocessed_data/y_angle_test.pt")
     else:
         print("Preprocessed tensors not available. Reading dataset")
         for input_fn in tqdm(input_filename_list):
@@ -237,20 +240,20 @@ def get_dataloader(input_file_path, input_filename_list, batch_size=800):
         y_angle_test = torch.tensor(y_angle_test, dtype=torch.int)
 
         print("Saving preprocessed tensors for future use.")
-        torch.save(X_img_train, "X_img_train.pt")
-        torch.save(X_angle_train, "X_angle_train.pt")
-        torch.save(y_img_train, "y_img_train.pt")
-        torch.save(y_angle_train, "y_angle_train.pt")
+        torch.save(X_img_train, "preprocessed_data/X_img_train.pt")
+        torch.save(X_angle_train, "preprocessed_data/X_angle_train.pt")
+        torch.save(y_img_train, "preprocessed_data/y_img_train.pt")
+        torch.save(y_angle_train, "preprocessed_data/y_angle_train.pt")
 
-        torch.save(X_img_valid, "X_img_valid.pt")
-        torch.save(X_angle_valid, "X_angle_valid.pt")
-        torch.save(y_img_valid, "y_img_valid.pt")
-        torch.save(y_angle_valid, "y_angle_valid.pt")
+        torch.save(X_img_valid, "preprocessed_data/X_img_valid.pt")
+        torch.save(X_angle_valid, "preprocessed_data/X_angle_valid.pt")
+        torch.save(y_img_valid, "preprocessed_data/y_img_valid.pt")
+        torch.save(y_angle_valid, "preprocessed_data/y_angle_valid.pt")
 
-        torch.save(X_img_test, "X_img_test.pt")
-        torch.save(X_angle_test, "X_angle_test.pt")
-        torch.save(y_img_test, "y_img_test.pt")
-        torch.save(y_angle_test, "y_angle_test.pt")
+        torch.save(X_img_test, "preprocessed_data/X_img_test.pt")
+        torch.save(X_angle_test, "preprocessed_data/X_angle_test.pt")
+        torch.save(y_img_test, "preprocessed_data/y_img_test.pt")
+        torch.save(y_angle_test, "preprocessed_data/y_angle_test.pt")
 
     train_dataset = TensorDataset(
         X_img_train, X_angle_train, y_img_train, y_angle_train
@@ -279,7 +282,7 @@ def get_model_optimizer(ckpt_iter):
 
     # Load checkpoint
     if ckpt_iter:
-        ckpt_path = f"./checkpoints/ckpt_{ckpt_iter}.pt"
+        ckpt_path = os.path.join(OUTPUT_DIR, f"checkpoints/ckpt_{ckpt_iter}.pt")
         checkpoint = torch.load(ckpt_path)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
@@ -305,13 +308,13 @@ def train(
     printout_freq = 1
     save_ckpt_freq = 1
 
-    train_checkpoint_path = "./checkpoints"
+    train_checkpoint_path = os.path.join(OUTPUT_DIR, "checkpoints")
     os.makedirs(train_checkpoint_path, exist_ok=True)
 
-    images_directory_path = "./images"
+    images_directory_path = os.path.join(OUTPUT_DIR, "images")
     os.makedirs(images_directory_path, exist_ok=True)
 
-    progress_plot_path = "./progress"
+    progress_plot_path = os.path.join(OUTPUT_DIR, "progress")
     os.makedirs(progress_plot_path, exist_ok=True)
     start_time = time.time()
 
@@ -337,13 +340,17 @@ def train(
 
             flow_corr, bright_corr = model(imgs, target_angles)
             img_corr = warp(imgs, flow_corr, bright_corr)
-            loss_correction = criterion(img_corr, targets)
+            loss_correction = misalignment_tolerant_mse_loss(
+                img_corr, targets, criterion
+            )
 
             flow_reconstruction, bright_reconstruction = model(img_corr, angles)
             img_reconstruction = warp(
                 img_corr, flow_reconstruction, bright_reconstruction
             )
-            loss_reconstruction = criterion(img_reconstruction, imgs)
+            loss_reconstruction = misalignment_tolerant_mse_loss(
+                img_reconstruction, imgs, criterion
+            )
 
             loss = (weight_correction_loss * loss_correction) + (
                 weight_reconstruction_loss * loss_reconstruction
@@ -370,13 +377,17 @@ def train(
 
                 flow_corr, bright_corr = model(imgs, target_angles)
                 img_corr = warp(imgs, flow_corr, bright_corr)
-                loss_correction = criterion(img_corr, targets)
+                loss_correction = misalignment_tolerant_mse_loss(
+                    img_corr, targets, criterion
+                )
 
                 flow_reconstruction, bright_reconstruction = model(img_corr, angles)
                 img_reconstruction = warp(
                     img_corr, flow_reconstruction, bright_reconstruction
                 )
-                loss_reconstruction = criterion(img_reconstruction, imgs)
+                loss_reconstruction = misalignment_tolerant_mse_loss(
+                    img_reconstruction, imgs, criterion
+                )
 
                 loss = (weight_correction_loss * loss_correction) + (
                     weight_reconstruction_loss * loss_reconstruction
@@ -468,7 +479,7 @@ def test(
 ):
     print("Evaluating model")
 
-    images_directory_path = "./test_images"
+    images_directory_path = os.path.join(OUTPUT_DIR, "test_images")
     os.makedirs(images_directory_path, exist_ok=True)
 
     # Placeholders for displaying last batch of images
@@ -489,13 +500,17 @@ def test(
 
             flow_corr, bright_corr = model(imgs, target_angles)
             img_corr = warp(imgs, flow_corr, bright_corr)
-            loss_correction = criterion(img_corr, targets)
+            loss_correction = misalignment_tolerant_mse_loss(
+                img_corr, targets, criterion
+            )
 
             flow_reconstruction, bright_reconstruction = model(img_corr, angles)
             img_reconstruction = warp(
                 img_corr, flow_reconstruction, bright_reconstruction
             )
-            loss_reconstruction = criterion(img_reconstruction, imgs)
+            loss_reconstruction = misalignment_tolerant_mse_loss(
+                img_reconstruction, imgs, criterion
+            )
 
             loss = (weight_correction_loss * loss_correction) + (
                 weight_reconstruction_loss * loss_reconstruction
