@@ -33,7 +33,7 @@ def create_virtual_cam():
         ) as cam:
             # Initialize ECCNet
             model = ECCNet().to(device)
-            ckpt_path = os.path.join(OUTPUT_DIR, f"checkpoints/ckpt_{15}.pt")
+            ckpt_path = os.path.join(OUTPUT_DIR, f"checkpoints/ckpt_{60}.pt")
             checkpoint = torch.load(ckpt_path)
             model.load_state_dict(checkpoint["model_state_dict"])
             model.eval()
@@ -45,6 +45,8 @@ def create_virtual_cam():
                 if not success:
                     print("Error reading camera frame")
                     break
+
+                og_image = image.copy()
 
                 # To improve performance, optionally mark the image as not writeable
                 # to pass by reference
@@ -60,37 +62,41 @@ def create_virtual_cam():
 
                         # Apply ECCNet to image
                         with torch.no_grad():
-                            # Get eye image patch
-                            og_eye_patch, og_size, cut_coord = get_eye_patch(
-                                face, image
-                            )
-                            eye_patch = torch.tensor(og_eye_patch).float().to(device)
-                            eye_patch = eye_patch.permute(2, 0, 1).unsqueeze(
-                                0
-                            )  # H, W, C -> N, C, H, W
+                            for left in [True, False]:
+                                # Get eye image patch
+                                og_eye_patch, og_size, cut_coord = get_eye_patch(
+                                    face, image, left
+                                )
+                                if not left:
+                                    # Flip eye image
+                                    og_eye_patch = cv2.flip(og_eye_patch, 1)
+                                eye_patch = (
+                                    torch.tensor(og_eye_patch).float().to(device)
+                                )
+                                eye_patch = eye_patch.permute(2, 0, 1).unsqueeze(
+                                    0
+                                )  # H, W, C -> N, C, H, W
 
-                            # Input into model
-                            flow_corr, bright_corr = model(eye_patch, look_vec)
-                            eye_corr = warp(eye_patch, flow_corr, bright_corr)
-                            eye_corr = eye_corr / 255.0
-                            eye_corr = eye_corr.squeeze().permute(1, 2, 0).cpu().numpy()
+                                # Input into model
+                                flow_corr, bright_corr = model(eye_patch, look_vec)
+                                eye_corr = warp(eye_patch, flow_corr, bright_corr)
+                                eye_corr = eye_corr / 255.0
+                                eye_corr = (
+                                    eye_corr.squeeze().permute(1, 2, 0).cpu().numpy()
+                                )
+                                # Paste eye back
+                                eye_corr = cv2.resize(
+                                    eye_corr, (og_size[1], og_size[0])
+                                )
+                                eye_corr = eye_corr * 255.0
+                                if not left:
+                                    # Flip eye back
+                                    eye_corr = cv2.flip(eye_corr, 1)
 
-                            # Paste eye back
-                            eye_corr = cv2.resize(eye_corr, (og_size[1], og_size[0]))
-                            # print("eyecorr")
-                            # print(eye_corr.shape)
-                            # print(
-                            #     image[
-                            #         cut_coord[0] : cut_coord[0] + og_size[0],
-                            #         cut_coord[1] : cut_coord[1] + og_size[1],
-                            #     ].shape
-                            # )
-                            image[
-                                cut_coord[0] : cut_coord[0] + og_size[0],
-                                cut_coord[1] : cut_coord[1] + og_size[1],
-                            ] = (
-                                eye_corr * 255.0
-                            )
+                                image[
+                                    cut_coord[0] : cut_coord[0] + og_size[0],
+                                    cut_coord[1] : cut_coord[1] + og_size[1],
+                                ] = eye_corr
 
                         # image = add_outline(face, image)
 
@@ -105,9 +111,10 @@ def create_virtual_cam():
                         # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                         cam.send(image)
                         cam.sleep_until_next_frame()
-                        cv2.imshow("Eye", cv2.flip(eye_corr, 1))
+                        # cv2.imshow("Eye", cv2.flip(eye_corr, 1))
 
                 cv2.imshow("Face", cv2.flip(image, 1))  # selfie flip
+                cv2.imshow("OG Face", cv2.flip(og_image, 1))  # selfie flip
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
                 if cv2.getWindowProperty("Face", cv2.WND_PROP_VISIBLE) < 1:

@@ -89,22 +89,31 @@ def add_outline(face, im):
     return im
 
 
-def get_eye_patch(face, im):
+def get_eye_patch(face, im, left=True):
     """
     Return a cropped 64x32 image patch around the left eye
     """
     img_height, img_width = im.shape[:2]
-    left_eye_landmarks = [face[i] for i in left_eye_indices]
-    left_eye_landmarks = np.array(
-        [
-            (int(landmark.x * img_width), int(landmark.y * img_height))
-            for landmark in left_eye_landmarks
-        ]
-    )
+    if left:
+        eye_landmarks = [face[i] for i in left_eye_indices]
+        eye_landmarks = np.array(
+            [
+                (int(landmark.x * img_width), int(landmark.y * img_height))
+                for landmark in eye_landmarks
+            ]
+        )
+    else:
+        eye_landmarks = [face[i] for i in right_eye_indices]
+        eye_landmarks = np.array(
+            [
+                (int(landmark.x * img_width), int(landmark.y * img_height))
+                for landmark in eye_landmarks
+            ]
+        )
 
     # Calculate bounding box
-    min_x, min_y = np.min(left_eye_landmarks, axis=0)
-    max_x, max_y = np.max(left_eye_landmarks, axis=0)
+    min_x, min_y = np.min(eye_landmarks, axis=0)
+    max_x, max_y = np.max(eye_landmarks, axis=0)
 
     # Get bbox length
     l = max_x - min_x
@@ -130,9 +139,6 @@ def get_eye_patch(face, im):
         int(center_x - (width / 2)) : int(center_x + (width / 2)),
     ]
     og_size = [im_cropped.shape[0], im_cropped.shape[1]]
-    # print("size")
-    # print(im_cropped.shape)
-    # print(og_size)
     cut_coord = [int(center_y - (height / 2)), int(center_x - (width / 2))]
 
     im_cropped = cv2.resize(im_cropped, (64, 32))
