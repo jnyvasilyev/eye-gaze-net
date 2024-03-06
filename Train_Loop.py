@@ -21,6 +21,7 @@ from model import ECCNet
 from warp import WarpImageWithFlowAndBrightness
 from warp import save_image
 from utils.loss_utils import misalignment_tolerant_mse_loss
+from utils.loss_utils import misalignment_tolerant_ssim_loss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -32,6 +33,7 @@ def get_filename_info(filename):
 
     # Get image data
     img = cv2.cvtColor(cv2.imread("%s.jpg" % filename[:-5]), cv2.COLOR_BGR2RGB)
+    img = img.astype(np.float32)/255.0
 
     # Get ID data
     titles_types = {"ID": int, "T": str, "N": int, "F": int, "V": float, "H": float}
@@ -312,6 +314,8 @@ def train(
     num_epochs=100,
     weight_correction_loss=0.8,
     weight_reconstruction_loss=0.2,
+    mse_weight=0.8,
+    ssim_weight=0.2
 ):
     print("Beginning training")
     printout_freq = 1
@@ -349,21 +353,35 @@ def train(
 
             flow_corr, bright_corr = model(imgs, target_angles)
             img_corr = warp(imgs, flow_corr, bright_corr)
-            loss_correction = misalignment_tolerant_mse_loss(
+
+            loss_correction_mse = misalignment_tolerant_mse_loss(
                 img_corr, targets, criterion
             )
-
+            loss_correction_ssim = misalignment_tolerant_ssim_loss(
+                img_corr, targets)
+            
             flow_reconstruction, bright_reconstruction = model(img_corr, angles)
             img_reconstruction = warp(
                 img_corr, flow_reconstruction, bright_reconstruction
             )
-            loss_reconstruction = misalignment_tolerant_mse_loss(
+
+            loss_reconstruction_mse = misalignment_tolerant_mse_loss(
                 img_reconstruction, imgs, criterion
             )
-
-            loss = (weight_correction_loss * loss_correction) + (
-                weight_reconstruction_loss * loss_reconstruction
+            loss_reconstruction_ssim = misalignment_tolerant_ssim_loss(
+                img_reconstruction, imgs 
             )
+
+            mse_loss = (weight_correction_loss * loss_correction_mse) + (
+                weight_reconstruction_loss * loss_reconstruction_mse
+            )
+
+            ssim_loss = (weight_correction_loss * loss_correction_ssim) + (
+                weight_reconstruction_loss * loss_reconstruction_ssim
+            )
+
+            loss = mse_loss*mse_weight + ssim_loss*ssim_weight
+
             train_loss += loss.item()
 
             optimizer.zero_grad()
@@ -386,21 +404,35 @@ def train(
 
                 flow_corr, bright_corr = model(imgs, target_angles)
                 img_corr = warp(imgs, flow_corr, bright_corr)
-                loss_correction = misalignment_tolerant_mse_loss(
+
+                loss_correction_mse = misalignment_tolerant_mse_loss(
                     img_corr, targets, criterion
                 )
-
+                loss_correction_ssim = misalignment_tolerant_ssim_loss(
+                    img_corr, targets)
+                
                 flow_reconstruction, bright_reconstruction = model(img_corr, angles)
                 img_reconstruction = warp(
                     img_corr, flow_reconstruction, bright_reconstruction
                 )
-                loss_reconstruction = misalignment_tolerant_mse_loss(
+
+                loss_reconstruction_mse = misalignment_tolerant_mse_loss(
                     img_reconstruction, imgs, criterion
                 )
-
-                loss = (weight_correction_loss * loss_correction) + (
-                    weight_reconstruction_loss * loss_reconstruction
+                loss_reconstruction_ssim = misalignment_tolerant_ssim_loss(
+                    img_reconstruction, imgs 
                 )
+
+                mse_loss = (weight_correction_loss * loss_correction_mse) + (
+                    weight_reconstruction_loss * loss_reconstruction_mse
+                )
+
+                ssim_loss = (weight_correction_loss * loss_correction_ssim) + (
+                    weight_reconstruction_loss * loss_reconstruction_ssim
+                )
+
+                loss = mse_loss*mse_weight + ssim_loss*ssim_weight
+
                 valid_loss += loss.item()
             valid_losses.append(valid_loss / len(valid_loader))
 
@@ -484,7 +516,9 @@ def test(
     warp,
     criterion=nn.MSELoss(),
     weight_correction_loss=0.8,
-    weight_reconstruction_loss=0.2,
+    weight_reconstruction_loss=0.2,    
+    mse_weight=0.8,
+    ssim_weight=0.2
 ):
     print("Evaluating model")
 
@@ -509,21 +543,34 @@ def test(
 
             flow_corr, bright_corr = model(imgs, target_angles)
             img_corr = warp(imgs, flow_corr, bright_corr)
-            loss_correction = misalignment_tolerant_mse_loss(
+            loss_correction_mse = misalignment_tolerant_mse_loss(
                 img_corr, targets, criterion
             )
-
+            loss_correction_ssim = misalignment_tolerant_ssim_loss(
+                img_corr, targets)
+            
             flow_reconstruction, bright_reconstruction = model(img_corr, angles)
             img_reconstruction = warp(
                 img_corr, flow_reconstruction, bright_reconstruction
             )
-            loss_reconstruction = misalignment_tolerant_mse_loss(
+
+            loss_reconstruction_mse = misalignment_tolerant_mse_loss(
                 img_reconstruction, imgs, criterion
             )
-
-            loss = (weight_correction_loss * loss_correction) + (
-                weight_reconstruction_loss * loss_reconstruction
+            loss_reconstruction_ssim = misalignment_tolerant_ssim_loss(
+                img_reconstruction, imgs 
             )
+
+            mse_loss = (weight_correction_loss * loss_correction_mse) + (
+                weight_reconstruction_loss * loss_reconstruction_mse
+            )
+
+            ssim_loss = (weight_correction_loss * loss_correction_ssim) + (
+                weight_reconstruction_loss * loss_reconstruction_ssim
+            )
+
+            loss = mse_loss*mse_weight + ssim_loss*ssim_weight
+
             test_loss += loss.item()
 
             img_display = imgs.clone()

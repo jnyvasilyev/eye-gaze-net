@@ -1,8 +1,6 @@
 import torch
 import torch.nn.functional as F
-from PIL import Image
 import torchvision
-import torchvision.transforms.functional as V
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -59,8 +57,6 @@ def save_image(tensor, filename="image_grid.png"):
         tensor = tensor.detach()
     if tensor.is_cuda:
         tensor = tensor.cpu()
-
-    tensor = tensor / 255.0
 
     # Make grid (2 rows and 5 columns) to display image batch
     grid_img = torchvision.utils.make_grid(tensor, nrow=5)
