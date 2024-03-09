@@ -39,7 +39,7 @@ class WarpImageWithFlowAndBrightness:
         warped_images = F.grid_sample(
             images,
             warped_grid,
-            mode="nearest",
+            mode="bilinear",
             padding_mode="reflection",
             align_corners=True,
         )

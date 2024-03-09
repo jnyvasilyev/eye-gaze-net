@@ -84,7 +84,7 @@ class ECCNet(nn.Module):
         self.final_upconv_2 = nn.ConvTranspose2d(32, 16, 2, stride=2)
         self.final_upconv_1 = nn.ConvTranspose2d(16, 8, 2, stride=2)
 
-        self.out = nn.Conv2d(8, 3, 1, padding=1)
+        self.out = nn.Conv2d(8, 3, 1, padding=0)
 
     def forward(self, img, angle):
         x = torch.cat([img, angle], dim=1)

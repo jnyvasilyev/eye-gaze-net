@@ -14,13 +14,16 @@ from utils.vcam_utils import add_outline, get_eye_patch
 mp_drawing = mp.solutions.drawing_utils
 
 cap = cv2.VideoCapture(0)  # depends on input device, usually 0
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = "cpu"
 
 look_vec = np.array([[0.0, 0.0]])
 look_vec = np.tile(look_vec[:, :, np.newaxis, np.newaxis], (1, 1, 32, 64))
 look_vec = torch.tensor(look_vec).float().to(device)
 
 OUTPUT_DIR = "./output"
+
+CHECKPOINT = 22
 
 
 def create_virtual_cam():
@@ -33,8 +36,8 @@ def create_virtual_cam():
         ) as cam:
             # Initialize ECCNet
             model = ECCNet().to(device)
-            ckpt_path = os.path.join(OUTPUT_DIR, f"checkpoints/ckpt_{60}.pt")
-            checkpoint = torch.load(ckpt_path)
+            ckpt_path = os.path.join(OUTPUT_DIR, f"checkpoints/ckpt_{CHECKPOINT}.pt")
+            checkpoint = torch.load(ckpt_path, map_location=torch.device("cpu"))
             model.load_state_dict(checkpoint["model_state_dict"])
             model.eval()
 
@@ -67,6 +70,7 @@ def create_virtual_cam():
                                 og_eye_patch, og_size, cut_coord = get_eye_patch(
                                     face, image, left
                                 )
+                                og_eye_patch = og_eye_patch.astype(np.float32) / 255.0
                                 if not left:
                                     # Flip eye image
                                     og_eye_patch = cv2.flip(og_eye_patch, 1)
@@ -80,15 +84,14 @@ def create_virtual_cam():
                                 # Input into model
                                 flow_corr, bright_corr = model(eye_patch, look_vec)
                                 eye_corr = warp(eye_patch, flow_corr, bright_corr)
-                                eye_corr = eye_corr / 255.0
                                 eye_corr = (
                                     eye_corr.squeeze().permute(1, 2, 0).cpu().numpy()
                                 )
+                                eye_corr = (eye_corr * 255.0).astype(np.uint8)
                                 # Paste eye back
                                 eye_corr = cv2.resize(
                                     eye_corr, (og_size[1], og_size[0])
                                 )
-                                eye_corr = eye_corr * 255.0
                                 if not left:
                                     # Flip eye back
                                     eye_corr = cv2.flip(eye_corr, 1)
