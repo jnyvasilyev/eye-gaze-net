@@ -37,7 +37,11 @@ class WarpImageWithFlowAndBrightness:
         """
         warped_grid = self.grid.to(images.device) + flow_map
         warped_images = F.grid_sample(
-            images, warped_grid, mode="bilinear", padding_mode="border"
+            images,
+            warped_grid,
+            mode="bilinear",
+            padding_mode="reflection",
+            align_corners=True,
         )
         adjusted_images = warped_images * brightness_map
         return adjusted_images

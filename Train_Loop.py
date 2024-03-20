@@ -20,264 +20,15 @@ from tqdm import tqdm
 from model import ECCNet
 from warp import WarpImageWithFlowAndBrightness
 from warp import save_image
-from utils.loss_utils import misalignment_tolerant_mse_loss
-from utils.loss_utils import misalignment_tolerant_ssim_loss
+from utils.loss_utils import (
+    misalignment_tolerant_mse_loss,
+    misalignment_tolerant_ssim_loss,
+)
+from utils.data_utils import get_dataloader
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 OUTPUT_DIR = "./output"
-
-
-def get_filename_info(filename):
-    info_dict = {}
-
-    # Get image data
-    img = cv2.cvtColor(cv2.imread("%s.jpg" % filename[:-5]), cv2.COLOR_BGR2RGB)
-    img = img.astype(np.float32)/255.0
-
-    # Get ID data
-    titles_types = {"ID": int, "T": str, "N": int, "F": int, "V": float, "H": float}
-    info_list = os.path.basename(filename[:-5]).split("_")
-    for title, info in zip(titles_types, info_list):
-        info_dict[title] = titles_types[title](info[len(title) :])
-    info_dict["target"] = info_dict["F"] == 1
-
-    def process_json_list(json_list):
-        ldmks = [eval(s) for s in json_list]
-        return np.array([(x, img.shape[0] - y, z) for (x, y, z) in ldmks])
-
-    # Get json data
-    json_data_file = open(filename)
-    json_data = json.load(json_data_file)
-    info_dict["look_vec"] = np.array(
-        eval(json_data["eye_details"]["look_vec"])
-    )  # 3D look direction vector
-    info_dict["interior_margin"] = process_json_list(
-        json_data["interior_margin_2d"]
-    )  # eye interior landmarks
-    info_dict["caruncle"] = process_json_list(
-        json_data["caruncle_2d"]
-    )  # caruncle landmarks
-    info_dict["iris"] = process_json_list(json_data["iris_2d"])  # iris landmarks
-    json_data_file.close()
-
-    # Crop the eye
-    # Calculate bounding box
-    min_x = np.min(info_dict["interior_margin"], axis=0)[0]
-    min_y = np.min(info_dict["interior_margin"], axis=0)[1]
-    max_x = np.max(info_dict["interior_margin"], axis=0)[0]
-    max_y = np.max(info_dict["interior_margin"], axis=0)[1]
-
-    # Get bbox length
-    l = max_x - min_x
-    aspect_ratio = 2
-    width = 1.5 * l
-    height = max_y - min_y
-
-    # Calculate center of bbox
-    center_x = (min_x + max_x) / 2
-    center_y = (min_y + max_y) / 2
-
-    # Correct aspect ratio
-    if (width) / (height) > aspect_ratio:
-        # too wide. Expand height
-        height = width / aspect_ratio
-    else:
-        # too tall. Expand width
-        width = height * aspect_ratio
-
-    # Resize to 64x32
-    img_cropped = img[
-        int(center_y - (height / 2)) : int(center_y + (height / 2)),
-        int(center_x - (width / 2)) : int(center_x + (width / 2)),
-    ]
-
-    img = cv2.resize(img_cropped, (64, 32))
-    img = np.transpose(img, (2, 0, 1))
-    info_dict["img"] = img
-
-    return info_dict
-
-
-# ### Notes on the dataframe info
-# - look_vec is a 3D homogeneous vector in the form \[x, y, z, 0\]. For purposes of the model input, only the x and y components are needed. I believe this vector is already normalized, but we can renormalize this vector before extracting the x and y components
-# - Feature landmarks (i.e., interior_margin, caruncle, and iris) are the pixel coordinates of feature BEFORE RESIZING. Ideally they are used to determine the crop/resize area
-#
-
-# ### Dataloader
-# The above dataframe contains info on all images, separated into IDs. As our model input, we would like to take all possible image pairs within an ID. With 40 images per ID, this results in 780 pairs.
-#
-# Dataloader will output input image, input vector, target image, target vector
-
-# In[18]:
-
-
-# Read dataset folder
-def get_dataset(input_file_path, input_fn):
-    """
-    Read the image and json data in the specified folder.
-    Args:
-        input_file_path: the base directory containing the dataset directories
-        input_fn: the name of dataset directory
-    Return:
-        imgs_list (list): List of images, cropped
-        vecs_list (list): List of gaze vectors, tiled
-    """
-    img_infos = []
-    json_fns = glob(os.path.join(input_file_path, input_fn, "*.json"))
-    for json_fn in json_fns:
-        info = get_filename_info(json_fn)
-        img_infos.append(info)
-
-    img_df = pd.DataFrame(img_infos)
-    img_df.sort_values(["ID", "F"], ignore_index=True, inplace=True)
-
-    # Extract relevant data for dataloader
-    n_ids = img_df.iloc[-1]["ID"]
-
-    imgs_list = []
-    vecs_list = []
-
-    # For each ID, generate all possible pairs
-    for id in range(1, n_ids + 1):
-        # Get ID
-        df_chunk = img_df.query(f"ID == {id}")
-        imgs = np.stack(df_chunk["img"])
-        vecs = np.stack(df_chunk["look_vec"].to_numpy())
-        vecs = (vecs / np.linalg.norm(vecs, axis=1, keepdims=True))[
-            :, :2
-        ]  # normalize, then get x and y components
-        vecs = np.tile(vecs[:, :, np.newaxis, np.newaxis], (1, 1, 32, 64))
-
-        # Generate pairs
-        pairs = np.triu_indices(len(df_chunk), k=1)
-        pairs = np.stack(pairs).transpose()
-
-        img_pairs = imgs[pairs]  # (pair_idx, input or output, C, H, W)
-        vec_pairs = vecs[pairs]  # (pair_idx, input or output, x or y, ...)
-
-        imgs_list.append(img_pairs)
-        vecs_list.append(vec_pairs)
-
-    return imgs_list, vecs_list
-
-
-def get_dataloader(input_file_path, input_filename_list, batch_size=800):
-    imgs_list_full = []
-    vecs_list_full = []
-
-    if os.path.exists("preprocessed_data/X_img_train.pt"):
-        print("Preprocessed dataset found. Loading...")
-        X_img_train = torch.load("preprocessed_data/X_img_train.pt")
-        X_angle_train = torch.load("preprocessed_data/X_angle_train.pt")
-        y_img_train = torch.load("preprocessed_data/y_img_train.pt")
-        y_angle_train = torch.load("preprocessed_data/y_angle_train.pt")
-        X_img_valid = torch.load("preprocessed_data/X_img_valid.pt")
-        X_angle_valid = torch.load("preprocessed_data/X_angle_valid.pt")
-        y_img_valid = torch.load("preprocessed_data/y_img_valid.pt")
-        y_angle_valid = torch.load("preprocessed_data/y_angle_valid.pt")
-        X_img_test = torch.load("preprocessed_data/X_img_test.pt")
-        X_angle_test = torch.load("preprocessed_data/X_angle_test.pt")
-        y_img_test = torch.load("preprocessed_data/y_img_test.pt")
-        y_angle_test = torch.load("preprocessed_data/y_angle_test.pt")
-    else:
-        print("Preprocessed tensors not available. Reading dataset")
-        for input_fn in tqdm(input_filename_list):
-            print("Reading " + input_fn)
-            imgs_list_part, vecs_list_part = get_dataset(input_file_path, input_fn)
-
-            imgs_list_full.append(imgs_list_part)
-            vecs_list_full.append(vecs_list_part)
-
-        # In[10]:
-        imgs_list_full = np.concatenate(np.concatenate(imgs_list_full))
-        vecs_list_full = np.concatenate(np.concatenate(vecs_list_full))
-
-        def unison_shuffled_copies(a, b):
-            assert len(a) == len(b)
-            p = np.random.permutation(len(a))
-            return a[p], b[p]
-
-        print("Shuffling data")
-        imgs_list_full, vecs_list_full = unison_shuffled_copies(
-            imgs_list_full, vecs_list_full
-        )
-
-        print(f"Dataset size: {len(imgs_list_full)}")
-
-        # In[11]:
-
-        # Create splits
-        num_samples = len(imgs_list_full)
-        splits = [0.7, 0.2, 0.1]
-
-        X_img = imgs_list_full[:, 0, ...]
-        X_angle = vecs_list_full[:, 0, ...]
-        y_img = imgs_list_full[:, 1, ...]
-        y_angle = vecs_list_full[:, 1, ...]
-
-        X_img_train, X_img_valid, X_img_test = np.split(
-            X_img,
-            [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
-        )
-        X_angle_train, X_angle_valid, X_angle_test = np.split(
-            X_angle,
-            [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
-        )
-        y_img_train, y_img_valid, y_img_test = np.split(
-            y_img,
-            [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
-        )
-        y_angle_train, y_angle_valid, y_angle_test = np.split(
-            y_angle,
-            [int(num_samples * splits[0]), int(num_samples * (splits[0] + splits[1]))],
-        )
-
-        # In[12]:
-
-        X_img_train = torch.tensor(X_img_train, dtype=torch.int)
-        X_angle_train = torch.tensor(X_angle_train, dtype=torch.float32)
-        y_img_train = torch.tensor(y_img_train, dtype=torch.int)
-        y_angle_train = torch.tensor(y_angle_train, dtype=torch.int)
-
-        X_img_valid = torch.tensor(X_img_valid, dtype=torch.int)
-        X_angle_valid = torch.tensor(X_angle_valid, dtype=torch.float32)
-        y_img_valid = torch.tensor(y_img_valid, dtype=torch.int)
-        y_angle_valid = torch.tensor(y_angle_valid, dtype=torch.int)
-
-        X_img_test = torch.tensor(X_img_test, dtype=torch.int)
-        X_angle_test = torch.tensor(X_angle_test, dtype=torch.float32)
-        y_img_test = torch.tensor(y_img_test, dtype=torch.int)
-        y_angle_test = torch.tensor(y_angle_test, dtype=torch.int)
-
-        print("Saving preprocessed tensors for future use.")
-        torch.save(X_img_train, "preprocessed_data/X_img_train.pt")
-        torch.save(X_angle_train, "preprocessed_data/X_angle_train.pt")
-        torch.save(y_img_train, "preprocessed_data/y_img_train.pt")
-        torch.save(y_angle_train, "preprocessed_data/y_angle_train.pt")
-
-        torch.save(X_img_valid, "preprocessed_data/X_img_valid.pt")
-        torch.save(X_angle_valid, "preprocessed_data/X_angle_valid.pt")
-        torch.save(y_img_valid, "preprocessed_data/y_img_valid.pt")
-        torch.save(y_angle_valid, "preprocessed_data/y_angle_valid.pt")
-
-        torch.save(X_img_test, "preprocessed_data/X_img_test.pt")
-        torch.save(X_angle_test, "preprocessed_data/X_angle_test.pt")
-        torch.save(y_img_test, "preprocessed_data/y_img_test.pt")
-        torch.save(y_angle_test, "preprocessed_data/y_angle_test.pt")
-
-    train_dataset = TensorDataset(
-        X_img_train, X_angle_train, y_img_train, y_angle_train
-    )
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    valid_dataset = TensorDataset(
-        X_img_valid, X_angle_valid, y_img_valid, y_angle_valid
-    )
-    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
-    test_dataset = TensorDataset(X_img_test, X_angle_test, y_img_test, y_angle_test)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    return train_loader, valid_loader, test_loader
 
 
 def get_model_optimizer(ckpt_iter):
@@ -285,11 +36,14 @@ def get_model_optimizer(ckpt_iter):
     model = ECCNet()
     model.to(device)
     # model = nn.DataParallel(model) # Comment out if using only one GPU
-    optimizer = optim.Adam(model.parameters(), lr=0.001, eps=0.1)
+    optimizer = optim.Adam(model.parameters(), lr=0.002, eps=0.1)
     scheduler = optim.lr_scheduler.CyclicLR(
         optimizer, base_lr=0.002, max_lr=0.01, cycle_momentum=False
     )
     start = 0
+    epochs = []
+    train_losses = []
+    valid_losses = []
 
     # Load checkpoint
     if ckpt_iter:
@@ -298,8 +52,11 @@ def get_model_optimizer(ckpt_iter):
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start = checkpoint["epoch"] + 1
+        epochs = checkpoint["epochs"]
+        train_losses = checkpoint["train_losses"]
+        valid_losses = checkpoint["valid_losses"]
 
-    return model, optimizer, scheduler, start
+    return model, optimizer, scheduler, start, epochs, train_losses, valid_losses
 
 
 def train(
@@ -315,7 +72,10 @@ def train(
     weight_correction_loss=0.8,
     weight_reconstruction_loss=0.2,
     mse_weight=0.8,
-    ssim_weight=0.2
+    ssim_weight=0.2,
+    epochs=[],
+    train_losses=[],
+    valid_losses=[],
 ):
     print("Beginning training")
     printout_freq = 1
@@ -331,8 +91,6 @@ def train(
     os.makedirs(progress_plot_path, exist_ok=True)
     start_time = time.time()
 
-    train_losses, valid_losses, epochs = [], [], []
-
     pbar = tqdm(range(start_epoch, start_epoch + num_epochs))
 
     # Placeholders for displaying last batch of images
@@ -343,7 +101,7 @@ def train(
         epoch_start_time = time.time()
         model.train()
         train_loss = 0
-        for imgs, angles, targets, target_angles in train_loader:
+        for imgs, angles, targets, target_angles in tqdm(train_loader):
             imgs, angles, targets, target_angles = (
                 imgs.float().to(device),
                 angles.float().to(device),
@@ -354,12 +112,18 @@ def train(
             flow_corr, bright_corr = model(imgs, target_angles)
             img_corr = warp(imgs, flow_corr, bright_corr)
 
+            # print(img_corr.shape)
+            # print(targets.shape)
+            # plt.imshow(img_corr[0].permute(1, 2, 0).detach().cpu().numpy())
+            # plt.show()
+            # plt.imshow(targets[0].permute(1, 2, 0).detach().cpu().numpy())
+            # plt.show()
+            #
             loss_correction_mse = misalignment_tolerant_mse_loss(
                 img_corr, targets, criterion
             )
-            loss_correction_ssim = misalignment_tolerant_ssim_loss(
-                img_corr, targets)
-            
+            loss_correction_ssim = misalignment_tolerant_ssim_loss(img_corr, targets)
+
             flow_reconstruction, bright_reconstruction = model(img_corr, angles)
             img_reconstruction = warp(
                 img_corr, flow_reconstruction, bright_reconstruction
@@ -369,7 +133,7 @@ def train(
                 img_reconstruction, imgs, criterion
             )
             loss_reconstruction_ssim = misalignment_tolerant_ssim_loss(
-                img_reconstruction, imgs 
+                img_reconstruction, imgs
             )
 
             mse_loss = (weight_correction_loss * loss_correction_mse) + (
@@ -380,7 +144,7 @@ def train(
                 weight_reconstruction_loss * loss_reconstruction_ssim
             )
 
-            loss = mse_loss*mse_weight + ssim_loss*ssim_weight
+            loss = mse_loss * mse_weight + ssim_loss * ssim_weight
 
             train_loss += loss.item()
 
@@ -409,8 +173,9 @@ def train(
                     img_corr, targets, criterion
                 )
                 loss_correction_ssim = misalignment_tolerant_ssim_loss(
-                    img_corr, targets)
-                
+                    img_corr, targets
+                )
+
                 flow_reconstruction, bright_reconstruction = model(img_corr, angles)
                 img_reconstruction = warp(
                     img_corr, flow_reconstruction, bright_reconstruction
@@ -420,7 +185,7 @@ def train(
                     img_reconstruction, imgs, criterion
                 )
                 loss_reconstruction_ssim = misalignment_tolerant_ssim_loss(
-                    img_reconstruction, imgs 
+                    img_reconstruction, imgs
                 )
 
                 mse_loss = (weight_correction_loss * loss_correction_mse) + (
@@ -431,7 +196,7 @@ def train(
                     weight_reconstruction_loss * loss_reconstruction_ssim
                 )
 
-                loss = mse_loss*mse_weight + ssim_loss*ssim_weight
+                loss = mse_loss * mse_weight + ssim_loss * ssim_weight
 
                 valid_loss += loss.item()
             valid_losses.append(valid_loss / len(valid_loader))
@@ -460,6 +225,9 @@ def train(
                         "optimizer_state_dict": optimizer.state_dict(),
                         "train_loss": train_loss,
                         "validation_loss": valid_loss,
+                        "epochs": epochs,
+                        "train_losses": train_losses,
+                        "validation_losses": valid_losses,
                     },
                     os.path.join(train_checkpoint_path, f"ckpt_{epoch+1}.pt"),
                 )
@@ -516,14 +284,19 @@ def test(
     warp,
     criterion=nn.MSELoss(),
     weight_correction_loss=0.8,
-    weight_reconstruction_loss=0.2,    
+    weight_reconstruction_loss=0.2,
     mse_weight=0.8,
-    ssim_weight=0.2
+    ssim_weight=0.2,
 ):
     print("Evaluating model")
 
     images_directory_path = os.path.join(OUTPUT_DIR, "test_images")
     os.makedirs(images_directory_path, exist_ok=True)
+
+    # Misc tensors to save for debugging
+    misc_path = os.path.join(OUTPUT_DIR, "misc")
+    os.makedirs(misc_path, exist_ok=True)
+    imgs_copy, flow_copy, brightness_copy, targets_copy = None, None, None, None
 
     # Placeholders for displaying last batch of images
     img_display = None
@@ -546,9 +319,8 @@ def test(
             loss_correction_mse = misalignment_tolerant_mse_loss(
                 img_corr, targets, criterion
             )
-            loss_correction_ssim = misalignment_tolerant_ssim_loss(
-                img_corr, targets)
-            
+            loss_correction_ssim = misalignment_tolerant_ssim_loss(img_corr, targets)
+
             flow_reconstruction, bright_reconstruction = model(img_corr, angles)
             img_reconstruction = warp(
                 img_corr, flow_reconstruction, bright_reconstruction
@@ -558,7 +330,7 @@ def test(
                 img_reconstruction, imgs, criterion
             )
             loss_reconstruction_ssim = misalignment_tolerant_ssim_loss(
-                img_reconstruction, imgs 
+                img_reconstruction, imgs
             )
 
             mse_loss = (weight_correction_loss * loss_correction_mse) + (
@@ -569,11 +341,16 @@ def test(
                 weight_reconstruction_loss * loss_reconstruction_ssim
             )
 
-            loss = mse_loss*mse_weight + ssim_loss*ssim_weight
+            loss = mse_loss * mse_weight + ssim_loss * ssim_weight
 
             test_loss += loss.item()
 
             img_display = imgs.clone()
+
+            imgs_copy = imgs.clone()
+            flow_copy = flow_corr.clone()
+            brightness_copy = bright_corr.clone()
+            targets_copy = targets.clone()
 
         # Save example images
         img_corr_display = img_corr.clone()
@@ -591,6 +368,12 @@ def test(
             os.path.join(images_directory_path, f"targets.png"),
         )
 
+        # Save misc tensors
+        torch.save(imgs_copy, os.path.join(misc_path, "imgs.pt"))
+        torch.save(flow_copy, os.path.join(misc_path, "flow.pt"))
+        torch.save(brightness_copy, os.path.join(misc_path, "brightness.pt"))
+        torch.save(targets_copy, os.path.join(misc_path, "targets.pt"))
+
     test_loss /= len(test_loader)
     print(f"Test Loss: {test_loss}")
 
@@ -603,17 +386,41 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"Using device {device}")
-    eccmodel, eccoptimizer, eccscheduler, start = get_model_optimizer(args.checkpoint)
+    (
+        eccmodel,
+        eccoptimizer,
+        eccscheduler,
+        start,
+        epochs,
+        train_losses,
+        valid_losses,
+    ) = get_model_optimizer(args.checkpoint)
     input_filename_list = [
         "imgs_1_cutouts",
         "imgs_2_cutouts",
         "imgs_3_cutouts",
         "imgs_4_cutouts",
         "imgs_5_cutouts",
+        "imgs_6_cutouts",
+        "imgs_7_cutouts",
+        "imgs_8_cutouts",
+        "imgs_9_cutouts",
+        "imgs_10_cutouts",
+        "imgs_11_cutouts",
+        "imgs_12_cutouts",
+        "imgs_13_cutouts",
+        "imgs_14_cutouts",
+        "imgs_15_cutouts",
+        "imgs_16_cutouts",
+        "imgs_17_cutouts",
+        "imgs_18_cutouts",
+        "imgs_19_cutouts",
+        "imgs_20_cutouts",
     ]
     input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
-    train_loader, valid_loader, test_loader = get_dataloader(
-        input_file_path, input_filename_list, 128
+    dataset_file_path = "./dataset"
+    train_loader, valid_loader = get_dataloader(
+        input_file_path, input_filename_list, dataset_file_path, 512, 8
     )
 
     # Train settings
@@ -636,10 +443,16 @@ if __name__ == "__main__":
             num_epochs=num_epochs,
             weight_correction_loss=weight_correction_loss,
             weight_reconstruction_loss=weight_reconstruction_loss,
+            mse_weight=1.0,
+            ssim_weight=0.0,
+            epochs=epochs,
+            train_losses=train_losses,
+            valid_losses=valid_losses,
         )
+    # TODO: for now, reusing validation set as test set. Test set should be a natural dataset
     test(
         eccmodel,
-        test_loader,
+        valid_loader,
         warp,
         criterion,
         weight_correction_loss,
