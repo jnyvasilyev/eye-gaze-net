@@ -36,21 +36,35 @@ class UnityDataset(Dataset):
 
         return X_img, X_angle, y_img, y_angle
 
-        # cv2.imread()
-        # image.astype(np.float32) / 255.0
-        # torch.tensor(image, dtype=torch.float32)
-
 
 def get_img_vec(filename):
     """
     Read the jpg and json of the given filename.
     Preprocess and image and return the cropped img and angle vector
     """
+    filename = filename[:-5]
+
+    img = torch.load(filename + "_img.pt")
+    vec = torch.load(filename + "_vec.pt")
+
+    return img, vec
+
+
+def get_filename_info(filename):
     info_dict = {}
+
+    # Get ID data
+    titles_types = {"ID": int, "T": str, "N": int, "F": int, "V": float, "H": float}
+    info_list = os.path.basename(filename[:-5]).split("_")
+    for title, info in zip(titles_types, info_list):
+        info_dict[title] = titles_types[title](info[len(title) :])
+    info_dict["target"] = info_dict["F"] == 1
+    info_dict["filename"] = filename
 
     # Get image data
     img = cv2.cvtColor(cv2.imread("%s.jpg" % filename[:-5]), cv2.COLOR_BGR2RGB)
     img = img.astype(np.float32) / 255.0
+    info_dict["img"] = img
 
     # Get json data
     def process_json_list(json_list):
@@ -70,6 +84,28 @@ def get_img_vec(filename):
     )  # caruncle landmarks
     info_dict["iris"] = process_json_list(json_data["iris_2d"])  # iris landmarks
     json_data_file.close()
+
+    return info_dict
+
+
+# ### Notes on the dataframe info
+# - look_vec is a 3D homogeneous vector in the form \[x, y, z, 0\]. For purposes of the model input, only the x and y components are needed. I believe this vector is already normalized, but we can renormalize this vector before extracting the x and y components
+# - Feature landmarks (i.e., interior_margin, caruncle, and iris) are the pixel coordinates of feature BEFORE RESIZING. Ideally they are used to determine the crop/resize area
+#
+
+# ### Dataloader
+# The above dataframe contains info on all images, separated into IDs. As our model input, we would like to take all possible image pairs within an ID. With 40 images per ID, this results in 780 pairs.
+#
+# Dataloader will output input image, input vector, target image, target vector
+
+
+def process_image(info_dict, output_file_path):
+    """
+    Read the jpg and json of the given filename.
+    Preprocess and image and return the cropped img and angle vector
+    """
+    # Get image data
+    img = info_dict["img"]
 
     # Crop the eye
     # Calculate bounding box
@@ -104,6 +140,7 @@ def get_img_vec(filename):
 
     img = cv2.resize(img_cropped, (64, 32))
     img = np.transpose(img, (2, 0, 1))
+    img_tensor = torch.tensor(img)
 
     # Preprocess angle vector
     vec = info_dict["look_vec"]
@@ -111,33 +148,21 @@ def get_img_vec(filename):
         :2
     ]  # normalize, then get x and y components
     vec = np.tile(vec[:, np.newaxis, np.newaxis], (1, 32, 64))
+    vec_tensor = torch.tensor(vec)
+
+    # Save the image and vector
+    os.makedirs(os.path.join(output_file_path), exist_ok=True)
+    filename = os.path.basename(info_dict["filename"][:-5])
+    torch.save(
+        img_tensor,
+        os.path.join(output_file_path, filename + "_img.pt"),
+    )
+    torch.save(
+        vec_tensor,
+        os.path.join(output_file_path, filename + "_vec.pt"),
+    )
 
     return img, vec
-
-
-def get_filename_info(filename):
-    info_dict = {}
-
-    # Get ID data
-    titles_types = {"ID": int, "T": str, "N": int, "F": int, "V": float, "H": float}
-    info_list = os.path.basename(filename[:-5]).split("_")
-    for title, info in zip(titles_types, info_list):
-        info_dict[title] = titles_types[title](info[len(title) :])
-    info_dict["target"] = info_dict["F"] == 1
-    info_dict["filename"] = filename
-
-    return info_dict
-
-
-# ### Notes on the dataframe info
-# - look_vec is a 3D homogeneous vector in the form \[x, y, z, 0\]. For purposes of the model input, only the x and y components are needed. I believe this vector is already normalized, but we can renormalize this vector before extracting the x and y components
-# - Feature landmarks (i.e., interior_margin, caruncle, and iris) are the pixel coordinates of feature BEFORE RESIZING. Ideally they are used to determine the crop/resize area
-#
-
-# ### Dataloader
-# The above dataframe contains info on all images, separated into IDs. As our model input, we would like to take all possible image pairs within an ID. With 40 images per ID, this results in 780 pairs.
-#
-# Dataloader will output input image, input vector, target image, target vector
 
 
 # Read dataset folder
@@ -153,6 +178,7 @@ def process_dataset(input_file_path, input_fn, output_file_path):
     json_fns = glob(os.path.join(input_file_path, input_fn, "*.json"))
     for json_fn in json_fns:
         info = get_filename_info(json_fn)
+        process_image(info, os.path.join(input_file_path, input_fn + "_cutouts"))
         img_infos.append(info)
 
     img_df = pd.DataFrame(img_infos)
@@ -244,26 +270,26 @@ def get_dataloader(
 if __name__ == "__main__":
     # Preprocess the dataset
     input_filename_list = [
-        "imgs_1_cutouts",
-        "imgs_2_cutouts",
-        "imgs_3_cutouts",
-        "imgs_4_cutouts",
-        "imgs_5_cutouts",
-        "imgs_6_cutouts",
-        "imgs_7_cutouts",
-        "imgs_8_cutouts",
-        "imgs_9_cutouts",
-        "imgs_10_cutouts",
-        "imgs_11_cutouts",
-        "imgs_12_cutouts",
-        "imgs_13_cutouts",
-        "imgs_14_cutouts",
-        "imgs_15_cutouts",
-        "imgs_16_cutouts",
-        "imgs_17_cutouts",
-        "imgs_18_cutouts",
-        "imgs_19_cutouts",
-        "imgs_20_cutouts",
+        "imgs_1",
+        "imgs_2",
+        "imgs_3",
+        "imgs_4",
+        "imgs_5",
+        "imgs_6",
+        "imgs_7",
+        "imgs_8",
+        "imgs_9",
+        "imgs_10",
+        "imgs_11",
+        "imgs_12",
+        "imgs_13",
+        "imgs_14",
+        "imgs_15",
+        "imgs_16",
+        "imgs_17",
+        "imgs_18",
+        "imgs_19",
+        "imgs_20",
     ]
     input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
     output_file_path = "./dataset"

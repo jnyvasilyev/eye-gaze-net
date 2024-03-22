@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
+import time
+import os
 import argparse
 import torch
 import torch.nn as nn
@@ -8,8 +10,6 @@ import numpy as np
 import pandas as pd
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-import time
-import os
 import cv2
 import json
 import matplotlib.pyplot as plt
@@ -29,6 +29,8 @@ from utils.data_utils import get_dataloader
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 OUTPUT_DIR = "./output"
+
+# os.environ["TORCH_BOTTLENECK"] = "1"
 
 
 def get_model_optimizer(ckpt_iter):
@@ -54,7 +56,7 @@ def get_model_optimizer(ckpt_iter):
         start = checkpoint["epoch"] + 1
         epochs = checkpoint["epochs"]
         train_losses = checkpoint["train_losses"]
-        valid_losses = checkpoint["valid_losses"]
+        valid_losses = checkpoint["validation_losses"]
 
     return model, optimizer, scheduler, start, epochs, train_losses, valid_losses
 
@@ -96,6 +98,8 @@ def train(
     # Placeholders for displaying last batch of images
     img_corr_display = None
     target_display = None
+
+    torch.cuda.empty_cache()
 
     for epoch in pbar:
         epoch_start_time = time.time()
@@ -152,6 +156,8 @@ def train(
             loss.backward()
             optimizer.step()
             scheduler.step()
+
+            # exit()
 
         train_losses.append(train_loss / len(train_loader))
 
@@ -235,6 +241,8 @@ def train(
                 # Save example images
                 img_corr_display = img_corr.clone()
                 target_display = targets.clone()
+                # print(img_corr_display.shape)
+                # print(target_display.shape)
                 save_image(
                     img_corr_display,
                     os.path.join(
@@ -276,6 +284,7 @@ def train(
                     os.path.join(progress_plot_path, f"progress_epoch_{epoch + 1}.png")
                 )
                 plt.clf()
+        torch.cuda.empty_cache()
 
 
 def test(
@@ -396,37 +405,37 @@ if __name__ == "__main__":
         valid_losses,
     ) = get_model_optimizer(args.checkpoint)
     input_filename_list = [
-        "imgs_1_cutouts",
-        "imgs_2_cutouts",
-        "imgs_3_cutouts",
-        "imgs_4_cutouts",
-        "imgs_5_cutouts",
-        "imgs_6_cutouts",
-        "imgs_7_cutouts",
-        "imgs_8_cutouts",
-        "imgs_9_cutouts",
-        "imgs_10_cutouts",
-        "imgs_11_cutouts",
-        "imgs_12_cutouts",
-        "imgs_13_cutouts",
-        "imgs_14_cutouts",
-        "imgs_15_cutouts",
-        "imgs_16_cutouts",
-        "imgs_17_cutouts",
-        "imgs_18_cutouts",
-        "imgs_19_cutouts",
-        "imgs_20_cutouts",
+        "imgs_1",
+        "imgs_2",
+        "imgs_3",
+        "imgs_4",
+        "imgs_5",
+        "imgs_6",
+        "imgs_7",
+        "imgs_8",
+        "imgs_9",
+        "imgs_10",
+        "imgs_11",
+        "imgs_12",
+        "imgs_13",
+        "imgs_14",
+        "imgs_15",
+        "imgs_16",
+        "imgs_17",
+        "imgs_18",
+        "imgs_19",
+        "imgs_20",
     ]
     input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
     dataset_file_path = "./dataset"
     train_loader, valid_loader = get_dataloader(
-        input_file_path, input_filename_list, dataset_file_path, 512, 8
+        input_file_path, input_filename_list, dataset_file_path, 512, 16
     )
 
     # Train settings
     warp = WarpImageWithFlowAndBrightness(next(iter(train_loader))[0])
     criterion = nn.MSELoss()
-    num_epochs = 500
+    num_epochs = 2000
     weight_correction_loss = 0.8
     weight_reconstruction_loss = 0.2
 

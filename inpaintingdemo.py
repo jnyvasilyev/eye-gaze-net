@@ -23,7 +23,7 @@ look_vec = torch.tensor(look_vec).float().to(device)
 
 OUTPUT_DIR = "./output"
 
-CHECKPOINT = 22
+CHECKPOINT = 277
 
 
 def create_virtual_cam():

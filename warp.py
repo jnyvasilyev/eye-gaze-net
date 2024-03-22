@@ -68,6 +68,8 @@ def save_image(tensor, filename="image_grid.png"):
     # Convert the tensor to a numpy array and change data layout from C, H, W to H, W, C for displaying
     np_grid_img = grid_img.permute(1, 2, 0).numpy()
 
+    # print(np_grid_img.shape)
+
     # Display the image grid
     plt.imshow(np_grid_img)
     plt.axis("off")  # Turn off axis numbers and ticks
@@ -75,6 +77,17 @@ def save_image(tensor, filename="image_grid.png"):
     # Save the image grid to a file
     plt.savefig(filename, bbox_inches="tight", pad_inches=0.0)
     plt.close()  # Close the plot to prevent it from displaying in notebooks or environments
+
+
+def plt_show_image(im1, im2, im3):
+    im1 = im1.permute(1, 2, 0).detach().cpu().numpy()
+    im2 = im2.permute(1, 2, 0).detach().cpu().numpy()
+    im3 = im3.permute(1, 2, 0).detach().cpu().numpy()
+
+    full_im = np.concatenate((im1, im2, im3), axis=1)
+
+    plt.imshow(full_im)
+    plt.show()
 
 
 # Example usage:
