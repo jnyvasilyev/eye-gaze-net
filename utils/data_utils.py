@@ -1,5 +1,4 @@
 import os
-import shutil
 import json
 import pickle
 from glob import glob
@@ -14,29 +13,85 @@ from torch.utils.data import DataLoader, TensorDataset, Dataset
 import time
 import cv2
 import matplotlib.pyplot as plt
-from ipdb import set_trace
 from tqdm import tqdm
+
+def plt_show_image(im1, im2):
+    im1 = im1.permute(1, 2, 0).detach().cpu().numpy()
+    im2 = im2.permute(1, 2, 0).detach().cpu().numpy()
+
+    full_im = np.concatenate((im1, im2), axis=1)
+
+    plt.imshow(full_im)
+    plt.show()
 
 
 class UnityDataset(Dataset):
-    def __init__(self, root) -> None:
+    def __init__(self, root_list) -> None:
         super().__init__()
-        self.root = root
-        self.files = os.listdir(root)
+        self.root_list = root_list
+        self.files = []
+        for root in root_list:
+            file_list = os.listdir(root)
+            self.files += [os.path.join(root, file) for file in file_list]
 
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, idx):
-        # imgs, vecs = torch.load(os.path.join(self.root, self.files[idx]))
-        with open(os.path.join(self.root, self.files[idx]), "rb") as f:
+        with open(self.files[idx], "rb") as f:
             fn_in, fn_out = pickle.load(f)
         X_img, X_angle = get_img_vec(fn_in)
         y_img, y_angle = get_img_vec(fn_out)
 
+        # Augment the data
+        X_img, y_img = augment_img(X_img, y_img)
+
+        # plt_show_image(X_img, y_img)
+
         return X_img, X_angle, y_img, y_angle
 
 
+def augment_img(X_img, y_img):
+    """
+    Augment the given images before training.
+    Augmentation includes additive noise, color jitter, and Gaussian blur
+    Augmentations are applied in random order and magnitude
+    """
+    ADD_NOISE_STD = 0.05
+    BLUR_KERNEL_SIZES = [1, 3, 5, 7]
+
+    # Additive noise
+    noise = torch.randn_like(X_img) * ADD_NOISE_STD
+
+    # Gaussian blur
+    blur_kernel = random.choice(BLUR_KERNEL_SIZES)
+
+    # Color jitter
+    brightness = 1 + random.uniform(-0.2, 0.2)
+    contrast = 1 + random.uniform(-0.2, 0.2)
+    saturation = 1 + random.uniform(-0.2, 0.2)
+    hue = random.uniform(-0.1, 0.1)
+
+    augmentation_functions = [
+        lambda x: torch.clamp(x + noise, 0, 1),
+        lambda x: tvf.gaussian_blur(x, kernel_size=blur_kernel),
+        lambda x: tvf.adjust_brightness(x, brightness),
+        lambda x: tvf.adjust_contrast(x, contrast),
+        lambda x: tvf.adjust_saturation(x, saturation),
+        lambda x: tvf.adjust_hue(x, hue),
+    ]
+
+    random.shuffle(augmentation_functions)
+
+    # Apply augmentation techniques with random magnitudes
+    for augmentation_func in augmentation_functions:
+        X_img = augmentation_func(X_img)
+        y_img = augmentation_func(y_img)
+
+    return X_img, y_img
+
+
+>>>>>>> Stashed changes
 def get_img_vec(filename):
     """
     Read the jpg and json of the given filename.
@@ -59,7 +114,7 @@ def get_filename_info(filename):
     for title, info in zip(titles_types, info_list):
         info_dict[title] = titles_types[title](info[len(title) :])
     info_dict["target"] = info_dict["F"] == 1
-    info_dict["filename"] = filename
+    info_dict["filename"] = os.path.basename(filename[:-5])
 
     # Get image data
     img = cv2.cvtColor(cv2.imread("%s.jpg" % filename[:-5]), cv2.COLOR_BGR2RGB)
@@ -152,7 +207,7 @@ def process_image(info_dict, output_file_path):
 
     # Save the image and vector
     os.makedirs(os.path.join(output_file_path), exist_ok=True)
-    filename = os.path.basename(info_dict["filename"][:-5])
+    filename = info_dict["filename"]
     torch.save(
         img_tensor,
         os.path.join(output_file_path, filename + "_img.pt"),
@@ -207,7 +262,21 @@ def process_dataset(input_file_path, input_fn, output_file_path):
                 os.path.join(output_file_path, f"{input_fn}_{id}_p{pair_idx}.pkl"),
                 "wb",
             ) as f:
-                pickle.dump((fn_pairs[pair_idx][0], fn_pairs[pair_idx][1]), f)
+                pickle.dump(
+                    (
+                        os.path.join(
+                            input_file_path,
+                            input_fn + "_cutouts",
+                            fn_pairs[pair_idx][0] + ".json",
+                        ),
+                        os.path.join(
+                            input_file_path,
+                            input_fn + "_cutouts",
+                            fn_pairs[pair_idx][1] + ".json",
+                        ),
+                    ),
+                    f,
+                )
 
 
 def get_dataloader(
@@ -220,8 +289,11 @@ def get_dataloader(
     """
     Process and return a dataloader for the UnityEyes dataset.
     """
-    train_path = os.path.join(output_file_path, "train")
-    valid_path = os.path.join(output_file_path, "valid")
+    train_paths = [
+        os.path.join(output_file_path, "train"),
+        # os.path.join(output_file_path, "train2"),
+    ]
+    valid_paths = [os.path.join(output_file_path, "valid")]
 
     if os.path.exists(output_file_path):
         print("Preprocessed dataset found. Loading...")
@@ -235,11 +307,15 @@ def get_dataloader(
 
         # Create splits
         files = os.listdir(output_file_path)
+
         split_ratio = 0.8
         split_idx = int(len(files) * split_ratio)
 
         train_files = files[:split_idx]
         valid_files = files[split_idx:]
+
+        train_path = train_paths[0]
+        valid_path = valid_paths[0]
 
         # Move splits into new directories
         os.makedirs(train_path, exist_ok=True)
@@ -255,11 +331,11 @@ def get_dataloader(
             dst = os.path.join(valid_path, file)
             shutil.move(src, dst)
 
-    train_dataset = UnityDataset(train_path)
+    train_dataset = UnityDataset(train_paths)
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
-    valid_dataset = UnityDataset(valid_path)
+    valid_dataset = UnityDataset(valid_paths)
     valid_loader = DataLoader(
         valid_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
@@ -270,26 +346,36 @@ def get_dataloader(
 if __name__ == "__main__":
     # Preprocess the dataset
     input_filename_list = [
-        "imgs_1",
-        "imgs_2",
-        "imgs_3",
-        "imgs_4",
-        "imgs_5",
-        "imgs_6",
-        "imgs_7",
-        "imgs_8",
-        "imgs_9",
-        "imgs_10",
-        "imgs_11",
-        "imgs_12",
-        "imgs_13",
-        "imgs_14",
-        "imgs_15",
-        "imgs_16",
-        "imgs_17",
-        "imgs_18",
-        "imgs_19",
-        "imgs_20",
+        # "imgs_1",
+        # "imgs_2",
+        # "imgs_3",
+        # "imgs_4",
+        # "imgs_5",
+        # "imgs_6",
+        # "imgs_7",
+        # "imgs_8",
+        # "imgs_9",
+        # "imgs_10",
+        # "imgs_11",
+        # "imgs_12",
+        # "imgs_13",
+        # "imgs_14",
+        # "imgs_15",
+        # "imgs_16",
+        # "imgs_17",
+        # "imgs_18",
+        # "imgs_19",
+        # "imgs_20",
+        "imgs_21",
+        "imgs_22",
+        "imgs_23",
+        "imgs_24",
+        "imgs_25",
+        "imgs_26",
+        "imgs_27",
+        "imgs_28",
+        "imgs_29",
+        "imgs_30",
     ]
     input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
     output_file_path = "./dataset"
@@ -297,9 +383,12 @@ if __name__ == "__main__":
         input_file_path, input_filename_list, output_file_path, 1
     )
 
+    print(len(train_loader))
+    print(len(valid_loader))
+
     # Test the output
     device = "cuda"
-    for imgs, angles, targets, target_angles in train_loader:
+    for imgs, angles, targets, target_angles in tqdm(train_loader):
         imgs, angles, targets, target_angles = (
             imgs.float().to(device),
             angles.float().to(device),
@@ -309,19 +398,19 @@ if __name__ == "__main__":
 
         print(imgs.shape)
         print(imgs.dtype)
-        plt.imshow(imgs[0].permute(1, 2, 0).detach().cpu().numpy())
+        # plt.imshow(imgs[0].permute(1, 2, 0).detach().cpu().numpy())
         print(angles.shape)
         print(angles.dtype)
         print(angles[0, 0])
         print(angles[0, 1])
         print(targets.shape)
         print(targets.dtype)
-        plt.imshow(targets[0].permute(1, 2, 0).detach().cpu().numpy())
+        # plt.imshow(targets[0].permute(1, 2, 0).detach().cpu().numpy())
         print(target_angles.shape)
         print(target_angles.dtype)
         print(target_angles[0, 0])
         print(target_angles[0, 1])
 
-        plt.show()
+        plt_show_image(imgs[0], targets[0])
 
-        exit()
+        # exit()

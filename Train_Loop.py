@@ -13,7 +13,6 @@ from torch.utils.data import DataLoader, TensorDataset
 import cv2
 import json
 import matplotlib.pyplot as plt
-from ipdb import set_trace
 from glob import glob
 from tqdm import tqdm
 
@@ -28,7 +27,7 @@ from utils.data_utils import get_dataloader
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-OUTPUT_DIR = "./output"
+OUTPUT_DIR = "./output2"
 
 # os.environ["TORCH_BOTTLENECK"] = "1"
 
@@ -57,6 +56,8 @@ def get_model_optimizer(ckpt_iter):
         epochs = checkpoint["epochs"]
         train_losses = checkpoint["train_losses"]
         valid_losses = checkpoint["validation_losses"]
+
+        print("Checkpoint loaded.")
 
     return model, optimizer, scheduler, start, epochs, train_losses, valid_losses
 
@@ -425,6 +426,16 @@ if __name__ == "__main__":
         "imgs_18",
         "imgs_19",
         "imgs_20",
+        "imgs_21",
+        "imgs_22",
+        "imgs_23",
+        "imgs_24",
+        "imgs_25",
+        "imgs_26",
+        "imgs_27",
+        "imgs_28",
+        "imgs_29",
+        "imgs_30",
     ]
     input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
     dataset_file_path = "./dataset"
@@ -452,8 +463,8 @@ if __name__ == "__main__":
             num_epochs=num_epochs,
             weight_correction_loss=weight_correction_loss,
             weight_reconstruction_loss=weight_reconstruction_loss,
-            mse_weight=1.0,
-            ssim_weight=0.0,
+            mse_weight=0.8,
+            ssim_weight=0.2,
             epochs=epochs,
             train_losses=train_losses,
             valid_losses=valid_losses,

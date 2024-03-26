@@ -23,6 +23,7 @@ look_vec = torch.tensor(look_vec).float().to(device)
 
 OUTPUT_DIR = "./output"
 
+# 277: first round synthetic training complete
 CHECKPOINT = 277
 
 
