@@ -2,11 +2,13 @@ import os
 import shutil
 import json
 import pickle
+import random
 from glob import glob
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.transforms.functional as tvf
 import numpy as np
 import pandas as pd
 import torch.optim as optim
@@ -16,6 +18,8 @@ import cv2
 import matplotlib.pyplot as plt
 from ipdb import set_trace
 from tqdm import tqdm
+
+from warp import plt_show_image
 
 
 class UnityDataset(Dataset):
@@ -34,7 +38,52 @@ class UnityDataset(Dataset):
         X_img, X_angle = get_img_vec(fn_in)
         y_img, y_angle = get_img_vec(fn_out)
 
+        # Augment the data
+        X_img, y_img = augment_img(X_img, y_img)
+
+        # plt_show_image(X_img, y_img, X_img)
+
         return X_img, X_angle, y_img, y_angle
+
+
+def augment_img(X_img, y_img):
+    """
+    Augment the given images before training.
+    Augmentation includes additive noise, color jitter, and Gaussian blur
+    Augmentations are applied in random order and magnitude
+    """
+    ADD_NOISE_STD = 0.1
+    BLUR_KERNEL_SIZES = [3, 5, 7]
+
+    # Additive noise
+    noise = torch.randn_like(X_img) * ADD_NOISE_STD
+
+    # Gaussian blur
+    blur_kernel = random.choice(BLUR_KERNEL_SIZES)
+
+    # Color jitter
+    brightness = 1 + random.uniform(-0.2, 0.2)
+    contrast = 1 + random.uniform(-0.2, 0.2)
+    saturation = 1 + random.uniform(-0.2, 0.2)
+    hue = random.uniform(-0.1, 0.1)
+
+    augmentation_functions = [
+        lambda x: torch.clamp(x + noise, 0, 1),
+        lambda x: tvf.gaussian_blur(x, kernel_size=blur_kernel),
+        lambda x: tvf.adjust_brightness(x, brightness),
+        lambda x: tvf.adjust_contrast(x, contrast),
+        lambda x: tvf.adjust_saturation(x, saturation),
+        lambda x: tvf.adjust_hue(x, hue),
+    ]
+
+    random.shuffle(augmentation_functions)
+
+    # Apply augmentation techniques with random magnitudes
+    for augmentation_func in augmentation_functions:
+        X_img = augmentation_func(X_img)
+        y_img = augmentation_func(y_img)
+
+    return X_img, y_img
 
 
 def get_img_vec(filename):
