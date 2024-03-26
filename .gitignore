@@ -1,2 +1,5 @@
 imgs_0_cutouts/*
 
+__pycache__
+
+*__pycache__/*
