@@ -1,11 +1,13 @@
 import os
 import json
 import pickle
+import random
 from glob import glob
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.transforms.functional as tvf
 import numpy as np
 import pandas as pd
 import torch.optim as optim
@@ -57,8 +59,13 @@ def augment_img(X_img, y_img):
     Augmentation includes additive noise, color jitter, and Gaussian blur
     Augmentations are applied in random order and magnitude
     """
+<<<<<<< HEAD
     ADD_NOISE_STD = 0.05
     BLUR_KERNEL_SIZES = [1, 3, 5, 7]
+=======
+    ADD_NOISE_STD = 0.1
+    BLUR_KERNEL_SIZES = [3, 5, 7]
+>>>>>>> e5ffdccb674f48ae8ab82dcba617d0f3bb32dc49
 
     # Additive noise
     noise = torch.randn_like(X_img) * ADD_NOISE_STD
@@ -91,7 +98,10 @@ def augment_img(X_img, y_img):
     return X_img, y_img
 
 
+<<<<<<< HEAD
 >>>>>>> Stashed changes
+=======
+>>>>>>> e5ffdccb674f48ae8ab82dcba617d0f3bb32dc49
 def get_img_vec(filename):
     """
     Read the jpg and json of the given filename.
