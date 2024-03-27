@@ -438,9 +438,8 @@ if __name__ == "__main__":
         "imgs_30",
     ]
     input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
-    dataset_file_path = "./dataset"
     train_loader, valid_loader = get_dataloader(
-        input_file_path, input_filename_list, dataset_file_path, 512, 16
+        input_file_path, input_filename_list, batch_size=512, num_workers=8
     )
 
     # Train settings

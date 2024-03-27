@@ -1,4 +1,5 @@
 import os
+import shutil
 import json
 import pickle
 import random
@@ -17,6 +18,10 @@ import cv2
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
+# Profiling
+from torch.profiler import profile, record_function, ProfilerActivity
+
+
 def plt_show_image(im1, im2):
     im1 = im1.permute(1, 2, 0).detach().cpu().numpy()
     im2 = im2.permute(1, 2, 0).detach().cpu().numpy()
@@ -28,20 +33,30 @@ def plt_show_image(im1, im2):
 
 
 class UnityDataset(Dataset):
-    def __init__(self, root_list) -> None:
+    def __init__(self, pair_list) -> None:
         super().__init__()
-        self.root_list = root_list
-        self.files = []
-        for root in root_list:
-            file_list = os.listdir(root)
-            self.files += [os.path.join(root, file) for file in file_list]
+        # self.root_list = root_list
+        # self.files = []
+        # for root in root_list:
+        #     # file_list = os.listdir(root)
+        #     # self.files += [os.path.join(root, file) for file in file_list]
+        #     for file in os.listdir(root):
+        #         with open(os.path.join(root, file), "rb") as f:
+        #             fn_in, fn_out = pickle.load(f)
+        #             self.pairs += [(fn_in, fn_out)]
+
+        self.pairs = pair_list
 
     def __len__(self):
-        return len(self.files)
+        # return len(self.files)
+        return len(self.pairs)
 
     def __getitem__(self, idx):
-        with open(self.files[idx], "rb") as f:
-            fn_in, fn_out = pickle.load(f)
+        # with open(self.files[idx], "rb") as f:
+        #     fn_in, fn_out = pickle.load(f)
+
+        fn_in, fn_out = self.pairs[idx]
+
         X_img, X_angle = get_img_vec(fn_in)
         y_img, y_angle = get_img_vec(fn_out)
 
@@ -59,13 +74,8 @@ def augment_img(X_img, y_img):
     Augmentation includes additive noise, color jitter, and Gaussian blur
     Augmentations are applied in random order and magnitude
     """
-<<<<<<< HEAD
     ADD_NOISE_STD = 0.05
     BLUR_KERNEL_SIZES = [1, 3, 5, 7]
-=======
-    ADD_NOISE_STD = 0.1
-    BLUR_KERNEL_SIZES = [3, 5, 7]
->>>>>>> e5ffdccb674f48ae8ab82dcba617d0f3bb32dc49
 
     # Additive noise
     noise = torch.randn_like(X_img) * ADD_NOISE_STD
@@ -98,19 +108,17 @@ def augment_img(X_img, y_img):
     return X_img, y_img
 
 
-<<<<<<< HEAD
->>>>>>> Stashed changes
-=======
->>>>>>> e5ffdccb674f48ae8ab82dcba617d0f3bb32dc49
 def get_img_vec(filename):
     """
     Read the jpg and json of the given filename.
     Preprocess and image and return the cropped img and angle vector
     """
-    filename = filename[:-5]
+    # print(f"Reading {filename}")
 
     img = torch.load(filename + "_img.pt")
     vec = torch.load(filename + "_vec.pt")
+
+    # print(f"Done reading {filename}")
 
     return img, vec
 
@@ -243,7 +251,7 @@ def process_dataset(input_file_path, input_fn, output_file_path):
     json_fns = glob(os.path.join(input_file_path, input_fn, "*.json"))
     for json_fn in json_fns:
         info = get_filename_info(json_fn)
-        process_image(info, os.path.join(input_file_path, input_fn + "_cutouts"))
+        # process_image(info, os.path.join(input_file_path, input_fn + "_cutouts"))
         img_infos.append(info)
 
     img_df = pd.DataFrame(img_infos)
@@ -266,7 +274,7 @@ def process_dataset(input_file_path, input_fn, output_file_path):
 
         # Store the filenames for every possible pair
         # This is what the dataloader will read
-        # os.makedirs(os.path.join(output_file_path, input_fn), exist_ok=True)
+        os.makedirs(output_file_path, exist_ok=True)
         for pair_idx in range(len(fn_pairs)):
             with open(
                 os.path.join(output_file_path, f"{input_fn}_{id}_p{pair_idx}.pkl"),
@@ -277,12 +285,12 @@ def process_dataset(input_file_path, input_fn, output_file_path):
                         os.path.join(
                             input_file_path,
                             input_fn + "_cutouts",
-                            fn_pairs[pair_idx][0] + ".json",
+                            fn_pairs[pair_idx][0],
                         ),
                         os.path.join(
                             input_file_path,
                             input_fn + "_cutouts",
-                            fn_pairs[pair_idx][1] + ".json",
+                            fn_pairs[pair_idx][1],
                         ),
                     ),
                     f,
@@ -292,63 +300,75 @@ def process_dataset(input_file_path, input_fn, output_file_path):
 def get_dataloader(
     input_file_path,
     input_filename_list,
-    output_file_path,
+    # output_file_path,
     batch_size=512,
-    num_workers=8,
+    num_workers=16,
 ):
     """
     Process and return a dataloader for the UnityEyes dataset.
     """
-    train_paths = [
-        os.path.join(output_file_path, "train"),
-        # os.path.join(output_file_path, "train2"),
-    ]
-    valid_paths = [os.path.join(output_file_path, "valid")]
-
-    if os.path.exists(output_file_path):
+    pairs_path = os.path.join(input_file_path, f"train_pairs.pkl")
+    if os.path.exists(pairs_path):
         print("Preprocessed dataset found. Loading...")
+        with open(pairs_path, "rb") as f:
+            train_pairs, valid_pairs = pickle.load(f)
     else:
         print("Preprocessed tensors not available. Reading dataset")
-        os.makedirs(output_file_path, exist_ok=True)
+        # os.makedirs(output_file_path, exist_ok=True)
 
         for input_fn in tqdm(input_filename_list):
+            output_file_path = os.path.join(input_file_path, input_fn + "_pairs")
             print("Reading " + input_fn)
             process_dataset(input_file_path, input_fn, output_file_path)
 
         # Create splits
-        files = os.listdir(output_file_path)
-
         split_ratio = 0.8
-        split_idx = int(len(files) * split_ratio)
+        split_idx = int(len(input_filename_list) * split_ratio)
 
-        train_files = files[:split_idx]
-        valid_files = files[split_idx:]
+        train_paths = [
+            os.path.join(input_file_path, input_fn + "_pairs")
+            for input_fn in input_filename_list[:split_idx]
+        ]
+        valid_paths = [
+            os.path.join(input_file_path, input_fn + "_pairs")
+            for input_fn in input_filename_list[split_idx:]
+        ]
 
-        train_path = train_paths[0]
-        valid_path = valid_paths[0]
+        train_pairs = []
+        valid_pairs = []
+        for root in train_paths:
+            for file in os.listdir(root):
+                with open(os.path.join(root, file), "rb") as f:
+                    fn_in, fn_out = pickle.load(f)
+                    train_pairs += [(fn_in, fn_out)]
+        for root in valid_paths:
+            for file in os.listdir(root):
+                with open(os.path.join(root, file), "rb") as f:
+                    fn_in, fn_out = pickle.load(f)
+                    valid_pairs += [(fn_in, fn_out)]
 
-        # Move splits into new directories
-        os.makedirs(train_path, exist_ok=True)
-        os.makedirs(valid_path, exist_ok=True)
+        with open(
+            os.path.join(input_file_path, f"train_pairs.pkl"),
+            "wb",
+        ) as f:
+            pickle.dump(
+                (
+                    train_pairs,
+                    valid_pairs,
+                ),
+                f,
+            )
 
-        for file in train_files:
-            src = os.path.join(output_file_path, file)
-            dst = os.path.join(train_path, file)
-            shutil.move(src, dst)
-
-        for file in valid_files:
-            src = os.path.join(output_file_path, file)
-            dst = os.path.join(valid_path, file)
-            shutil.move(src, dst)
-
-    train_dataset = UnityDataset(train_paths)
+    train_dataset = UnityDataset(train_pairs)
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
-    valid_dataset = UnityDataset(valid_paths)
+    valid_dataset = UnityDataset(valid_pairs)
     valid_loader = DataLoader(
         valid_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
+
+    print("Dataset loaded")
 
     return train_loader, valid_loader
 
@@ -356,26 +376,26 @@ def get_dataloader(
 if __name__ == "__main__":
     # Preprocess the dataset
     input_filename_list = [
-        # "imgs_1",
-        # "imgs_2",
-        # "imgs_3",
-        # "imgs_4",
-        # "imgs_5",
-        # "imgs_6",
-        # "imgs_7",
-        # "imgs_8",
-        # "imgs_9",
-        # "imgs_10",
-        # "imgs_11",
-        # "imgs_12",
-        # "imgs_13",
-        # "imgs_14",
-        # "imgs_15",
-        # "imgs_16",
-        # "imgs_17",
-        # "imgs_18",
-        # "imgs_19",
-        # "imgs_20",
+        "imgs_1",
+        "imgs_2",
+        "imgs_3",
+        "imgs_4",
+        "imgs_5",
+        "imgs_6",
+        "imgs_7",
+        "imgs_8",
+        "imgs_9",
+        "imgs_10",
+        "imgs_11",
+        "imgs_12",
+        "imgs_13",
+        "imgs_14",
+        "imgs_15",
+        "imgs_16",
+        "imgs_17",
+        "imgs_18",
+        "imgs_19",
+        "imgs_20",
         "imgs_21",
         "imgs_22",
         "imgs_23",
@@ -388,9 +408,13 @@ if __name__ == "__main__":
         "imgs_30",
     ]
     input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
-    output_file_path = "./dataset"
+    # output_file_path = "./dataset"
     train_loader, valid_loader = get_dataloader(
-        input_file_path, input_filename_list, output_file_path, 1
+        # input_file_path, input_filename_list, output_file_path, 1
+        input_file_path,
+        input_filename_list,
+        batch_size=512,
+        num_workers=8,
     )
 
     print(len(train_loader))
@@ -398,29 +422,35 @@ if __name__ == "__main__":
 
     # Test the output
     device = "cuda"
-    for imgs, angles, targets, target_angles in tqdm(train_loader):
-        imgs, angles, targets, target_angles = (
-            imgs.float().to(device),
-            angles.float().to(device),
-            targets.float().to(device),
-            target_angles.float().to(device),
-        )
 
-        print(imgs.shape)
-        print(imgs.dtype)
-        # plt.imshow(imgs[0].permute(1, 2, 0).detach().cpu().numpy())
-        print(angles.shape)
-        print(angles.dtype)
-        print(angles[0, 0])
-        print(angles[0, 1])
-        print(targets.shape)
-        print(targets.dtype)
-        # plt.imshow(targets[0].permute(1, 2, 0).detach().cpu().numpy())
-        print(target_angles.shape)
-        print(target_angles.dtype)
-        print(target_angles[0, 0])
-        print(target_angles[0, 1])
+    with profile(activities=[ProfilerActivity.CPU], profile_memory=True) as prof:
+        with record_function("load batch"):
+            for imgs, angles, targets, target_angles in tqdm(train_loader):
+                imgs, angles, targets, target_angles = (
+                    imgs.float().to(device),
+                    angles.float().to(device),
+                    targets.float().to(device),
+                    target_angles.float().to(device),
+                )
 
-        plt_show_image(imgs[0], targets[0])
+                # break
+    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
-        # exit()
+    # print(imgs.shape)
+    # print(imgs.dtype)
+    # # plt.imshow(imgs[0].permute(1, 2, 0).detach().cpu().numpy())
+    # print(angles.shape)
+    # print(angles.dtype)
+    # print(angles[0, 0])
+    # print(angles[0, 1])
+    # print(targets.shape)
+    # print(targets.dtype)
+    # # plt.imshow(targets[0].permute(1, 2, 0).detach().cpu().numpy())
+    # print(target_angles.shape)
+    # print(target_angles.dtype)
+    # print(target_angles[0, 0])
+    # print(target_angles[0, 1])
+
+    # plt_show_image(imgs[0], targets[0])
+
+    # exit()
