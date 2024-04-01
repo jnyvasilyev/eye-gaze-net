@@ -1,4 +1,6 @@
 import os
+
+import torch
 import numpy as np
 
 DEGREES_TO_RADIANS = np.pi / 180
@@ -66,7 +68,7 @@ def process_gaze_dataset(dataset_path):
     return data_dict
 
 
-dataset_path = "dataset\Columbia Gaze Data Set"
+dataset_path = "dataset\\Columbia Gaze Data Set"
 data_dict = process_gaze_dataset(dataset_path)
 # print(data_dict['0001_15P'])
 """

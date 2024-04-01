@@ -25,9 +25,12 @@ from utils.loss_utils import (
 )
 from utils.data_utils import get_dataloader
 
+import utils.data.unityeyes
+import utils.data.columbia
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-OUTPUT_DIR = "./output2"
+OUTPUT_DIR = "./output4"
 
 # os.environ["TORCH_BOTTLENECK"] = "1"
 
@@ -52,6 +55,7 @@ def get_model_optimizer(ckpt_iter):
         checkpoint = torch.load(ckpt_path)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         start = checkpoint["epoch"] + 1
         epochs = checkpoint["epochs"]
         train_losses = checkpoint["train_losses"]
@@ -230,6 +234,7 @@ def train(
                         "epoch": epoch,
                         "model_state_dict": model.state_dict(),  # model.state_dict() if using only one GPU ; model.module.state_dict() if parallel
                         "optimizer_state_dict": optimizer.state_dict(),
+                        "scheduler_state_dict": scheduler.state_dict(),
                         "train_loss": train_loss,
                         "validation_loss": valid_loss,
                         "epochs": epochs,
@@ -405,41 +410,26 @@ if __name__ == "__main__":
         train_losses,
         valid_losses,
     ) = get_model_optimizer(args.checkpoint)
-    input_filename_list = [
-        "imgs_1",
-        "imgs_2",
-        "imgs_3",
-        "imgs_4",
-        "imgs_5",
-        "imgs_6",
-        "imgs_7",
-        "imgs_8",
-        "imgs_9",
-        "imgs_10",
-        "imgs_11",
-        "imgs_12",
-        "imgs_13",
-        "imgs_14",
-        "imgs_15",
-        "imgs_16",
-        "imgs_17",
-        "imgs_18",
-        "imgs_19",
-        "imgs_20",
-        "imgs_21",
-        "imgs_22",
-        "imgs_23",
-        "imgs_24",
-        "imgs_25",
-        "imgs_26",
-        "imgs_27",
-        "imgs_28",
-        "imgs_29",
-        "imgs_30",
-    ]
-    input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
-    train_loader, valid_loader = get_dataloader(
-        input_file_path, input_filename_list, batch_size=512, num_workers=8
+
+    dataset_dir = os.path.join(os.getcwd(), "..", "dataset")
+    train_filename_list = utils.data.unityeyes.filename_list
+    train_file_path = os.path.join(dataset_dir, utils.data.unityeyes.dir_name)
+    valid_filename_list = utils.data.columbia.filename_list
+    valid_file_path = os.path.join(dataset_dir, utils.data.columbia.dir_name)
+
+    train_loader = get_dataloader(
+        train_file_path,
+        train_filename_list,
+        batch_size=512,
+        num_workers=8,
+        dtype=utils.data.unityeyes.name,
+    )
+    valid_loader = get_dataloader(
+        valid_file_path,
+        valid_filename_list,
+        batch_size=512,
+        num_workers=8,
+        dtype=utils.data.columbia.name,
     )
 
     # Train settings
@@ -462,18 +452,9 @@ if __name__ == "__main__":
             num_epochs=num_epochs,
             weight_correction_loss=weight_correction_loss,
             weight_reconstruction_loss=weight_reconstruction_loss,
-            mse_weight=0.8,
-            ssim_weight=0.2,
+            mse_weight=1.0,
+            ssim_weight=0.0,
             epochs=epochs,
             train_losses=train_losses,
             valid_losses=valid_losses,
         )
-    # TODO: for now, reusing validation set as test set. Test set should be a natural dataset
-    test(
-        eccmodel,
-        valid_loader,
-        warp,
-        criterion,
-        weight_correction_loss,
-        weight_reconstruction_loss,
-    )
