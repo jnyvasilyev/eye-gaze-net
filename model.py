@@ -20,13 +20,33 @@ class DepthwiseSeparableConv(nn.Module):
         x = self.relu(x)
         return x
 
+class SEBlock(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super(SEBlock, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid()
+        )
 
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+    
 class ResidualConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, final=False):
         super(ResidualConvBlock, self).__init__()
         self.conv1 = DepthwiseSeparableConv(in_channels, out_channels, 3)
         self.conv2 = DepthwiseSeparableConv(out_channels, out_channels, 3)
         self.conv3 = DepthwiseSeparableConv(out_channels, out_channels, 3)
+        self.final = final
+
+        self.se = SEBlock(out_channels)
+        self.convstride = DepthwiseSeparableConv(out_channels, out_channels, 3, stride=2, padding=1)  
 
     def forward(self, x):
         # Residual skip connection, might need to add downsample depending on input and output channels
@@ -34,31 +54,10 @@ class ResidualConvBlock(nn.Module):
         out = self.conv2(residual)
         out = torch.add(out, residual)
         out = self.conv3(out)
+        out = self.se(out)
+        if(not self.final):
+            out = self.convstride(out)
         return out
-
-
-"""
-class UpsampleConvLayer(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride = 1, upsample=2):
-        super(UpsampleConvLayer, self).__init__()
-        self.upsample = upsample
-        self.kernel_size = kernel_size
-        if upsample:
-            self.upsample = nn.Upsample(scale_factor=upsample, mode='nearest')
-        reflection_padding = kernel_size // 2
-        self.reflection_pad = nn.ReflectionPad2d(reflection_padding)
-        self.conv2d = nn.Conv2d(in_channels, out_channels, kernel_size, stride)
-
-    def forward(self, x):
-        if self.upsample:
-            x = self.upsample(x)  
-        if(self.kernel_size != 2):
-            x = self.reflection_pad(x)
-        else:
-            x = F.pad(x, (0, 1, 0, 1), mode = 'replicate')
-        out = self.conv2d(x)
-        return out
-"""
 
 
 class ECCNet(nn.Module):
@@ -70,9 +69,9 @@ class ECCNet(nn.Module):
         self.conv_block3 = ResidualConvBlock(64, 128)
         self.conv_block4 = ResidualConvBlock(128, 256)
 
-        self.upconv_block3 = ResidualConvBlock(256, 256)
-        self.upconv_block2 = ResidualConvBlock(128 + 128, 128)
-        self.upconv_block1 = ResidualConvBlock(64 + 64, 32)
+        self.upconv_block3 = ResidualConvBlock(256, 256, final=True)
+        self.upconv_block2 = ResidualConvBlock(128 + 128, 128, final=True)
+        self.upconv_block1 = ResidualConvBlock(64 + 64, 32, final=True)
 
         self.upconv_3 = nn.ConvTranspose2d(
             256, 128, 3, stride=2, padding=1, output_padding=1
@@ -91,13 +90,13 @@ class ECCNet(nn.Module):
 
         # Encoder
         x1 = self.conv_block1(x)
-        x1 = F.max_pool2d(x1, 2)
+        #x1 = F.max_pool2d(x1, 2)
         x2 = self.conv_block2(x1)
-        x2 = F.max_pool2d(x2, 2)
+        #x2 = F.max_pool2d(x2, 2)
         x3 = self.conv_block3(x2)
-        x3 = F.max_pool2d(x3, 2)
+        #x3 = F.max_pool2d(x3, 2)
         x4 = self.conv_block4(x3)
-        x4 = F.max_pool2d(x4, 2)
+        #x4 = F.max_pool2d(x4, 2)
         x5 = self.upconv_block3(x4)
         x5 = self.upconv_3(x5)
 
