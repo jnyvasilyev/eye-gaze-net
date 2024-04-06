@@ -20,6 +20,7 @@ class DepthwiseSeparableConv(nn.Module):
         x = self.relu(x)
         return x
 
+
 class SEBlock(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SEBlock, self).__init__()
@@ -28,7 +29,7 @@ class SEBlock(nn.Module):
             nn.Linear(channel, channel // reduction, bias=False),
             nn.ReLU(inplace=True),
             nn.Linear(channel // reduction, channel, bias=False),
-            nn.Sigmoid()
+            nn.Sigmoid(),
         )
 
     def forward(self, x):
@@ -36,7 +37,8 @@ class SEBlock(nn.Module):
         y = self.avg_pool(x).view(b, c)
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)
-    
+
+
 class ResidualConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, final=False):
         super(ResidualConvBlock, self).__init__()
@@ -46,7 +48,9 @@ class ResidualConvBlock(nn.Module):
         self.final = final
 
         self.se = SEBlock(out_channels)
-        self.convstride = DepthwiseSeparableConv(out_channels, out_channels, 3, stride=2, padding=1)  
+        self.convstride = DepthwiseSeparableConv(
+            out_channels, out_channels, 3, stride=2, padding=1
+        )
 
     def forward(self, x):
         # Residual skip connection, might need to add downsample depending on input and output channels
@@ -55,7 +59,7 @@ class ResidualConvBlock(nn.Module):
         out = torch.add(out, residual)
         out = self.conv3(out)
         out = self.se(out)
-        if(not self.final):
+        if not self.final:
             out = self.convstride(out)
         return out
 
@@ -90,13 +94,13 @@ class ECCNet(nn.Module):
 
         # Encoder
         x1 = self.conv_block1(x)
-        #x1 = F.max_pool2d(x1, 2)
+        # x1 = F.max_pool2d(x1, 2)
         x2 = self.conv_block2(x1)
-        #x2 = F.max_pool2d(x2, 2)
+        # x2 = F.max_pool2d(x2, 2)
         x3 = self.conv_block3(x2)
-        #x3 = F.max_pool2d(x3, 2)
+        # x3 = F.max_pool2d(x3, 2)
         x4 = self.conv_block4(x3)
-        #x4 = F.max_pool2d(x4, 2)
+        # x4 = F.max_pool2d(x4, 2)
         x5 = self.upconv_block3(x4)
         x5 = self.upconv_3(x5)
 
@@ -114,6 +118,3 @@ class ECCNet(nn.Module):
         brightness_map = torch.sigmoid(output[:, 2, :, :].unsqueeze(1))
 
         return flow.permute(0, 2, 3, 1), brightness_map
-
-
-# model = ECCNet()
