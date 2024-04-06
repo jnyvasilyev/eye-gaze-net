@@ -10,6 +10,7 @@ from matplotlib import animation
 from model import ECCNet
 from warp import WarpImageWithFlowAndBrightness
 from utils.vcam_utils import add_outline, get_eye_patch
+from utils.headpose import get_head_pose
 
 mp_drawing = mp.solutions.drawing_utils
 
@@ -62,6 +63,9 @@ def create_virtual_cam():
                     for face_landmarks in results.multi_face_landmarks:
                         face = face_landmarks.landmark
                         # draw(face, image)
+
+                        pitch, yaw = get_head_pose(face_landmarks, image.shape)
+                        print(pitch, yaw)
 
                         # Apply ECCNet to image
                         with torch.no_grad():
