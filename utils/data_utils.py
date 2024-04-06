@@ -38,9 +38,10 @@ def plt_show_image(im1, im2):
 
 
 class UnityDataset(Dataset):
-    def __init__(self, pair_list) -> None:
+    def __init__(self, pair_list, augment=True) -> None:
         super().__init__()
         self.pairs = pair_list
+        self.augment = augment
 
     def __len__(self):
         return len(self.pairs)
@@ -52,7 +53,8 @@ class UnityDataset(Dataset):
         y_img, y_angle = get_img_vec(fn_out)
 
         # Augment the data
-        X_img, X_angle, y_img, y_angle = augment_img(X_img, X_angle, y_img, y_angle)
+        if self.augment:
+            X_img, X_angle, y_img, y_angle = augment_img(X_img, X_angle, y_img, y_angle)
 
         # plt_show_image(X_img, y_img)
 
@@ -66,7 +68,7 @@ def augment_img(X_img, X_angle, y_img, y_angle):
     Augmentations are applied in random order and magnitude
     """
     ADD_NOISE_STD = [0.0, 0.05, 0.075]
-    BLUR_KERNEL_SIZES = [1, 3, 5, 7]
+    BLUR_KERNEL_SIZES = [1, 3, 5]
 
     # Additive noise
     noise = torch.randn_like(X_img) * random.choice(ADD_NOISE_STD)
@@ -297,6 +299,7 @@ def process_image(info_dict, output_file_path):
     vec_tensor_right = torch.tensor(vec_right)
 
     # Save the image and vector
+    # TODO: make these one file
     os.makedirs(output_file_path, exist_ok=True)
     filename = info_dict["filename"]
     torch.save(
@@ -354,6 +357,7 @@ def process_image_columbia(info_dict, output_file_path):
                     vec_tensor = torch.tensor(vec)
 
                     # Save the image and vector
+                    # TODO: make these one file
                     filename = info_dict["filename"]
                     if left:
                         os.makedirs(os.path.join(output_file_path), exist_ok=True)
@@ -557,7 +561,11 @@ def get_dataloader(
             print("Creating pairs file")
             train_pairs = create_pairs(input_file_path, input_filename_list, left)
 
-    train_dataset = UnityDataset(train_pairs)
+    augment = False
+    if dtype == "UnityEyes":
+        augment = True
+
+    train_dataset = UnityDataset(train_pairs, augment)
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
