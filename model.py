@@ -64,7 +64,7 @@ class ECCNet(nn.Module):
     def __init__(self):
         super(ECCNet, self).__init__()
 
-        self.conv_block1 = ResidualConvBlock(5, 32)
+        self.conv_block1 = ResidualConvBlock(7, 32)
         self.conv_block2 = ResidualConvBlock(32, 64)
         self.conv_block3 = ResidualConvBlock(64, 128)
         self.conv_block4 = ResidualConvBlock(128, 256)
@@ -85,8 +85,8 @@ class ECCNet(nn.Module):
 
         self.out = nn.Conv2d(8, 3, 1, padding=0)
 
-    def forward(self, img, angle):
-        x = torch.cat([img, angle], dim=1)
+    def forward(self, img, angle, head_pose):
+        x = torch.cat([img, angle, head_pose], dim=1)
 
         # Encoder
         x1 = self.conv_block1(x)
