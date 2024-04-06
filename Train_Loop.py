@@ -13,7 +13,6 @@ from torch.utils.data import DataLoader, TensorDataset
 import cv2
 import json
 import matplotlib.pyplot as plt
-from ipdb import set_trace
 from glob import glob
 from tqdm import tqdm
 
@@ -26,14 +25,17 @@ from utils.loss_utils import (
 )
 from utils.data_utils import get_dataloader
 
+import utils.data.unityeyes
+import utils.data.columbia
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-OUTPUT_DIR = "./output"
+OUTPUT_DIR = "./output2"
 
 # os.environ["TORCH_BOTTLENECK"] = "1"
 
 
-def get_model_optimizer(ckpt_iter):
+def get_model_optimizer(ckpt_iter, fine_tune=False):
     # Create the model
     model = ECCNet()
     model.to(device)
@@ -53,10 +55,27 @@ def get_model_optimizer(ckpt_iter):
         checkpoint = torch.load(ckpt_path)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         start = checkpoint["epoch"] + 1
         epochs = checkpoint["epochs"]
         train_losses = checkpoint["train_losses"]
         valid_losses = checkpoint["validation_losses"]
+
+        print("Checkpoint loaded.")
+
+    if fine_tune:
+        # Freeze all layers after first skip connection
+        # i.e. everything but conv_block1 and conv_block2
+        for name, param in model.named_parameters():
+            lname = name.split(".")[0]
+            if not any(
+                layer_name == lname for layer_name in ["conv_block1", "conv_block2"]
+            ):
+                param.requires_grad = False
+
+        # Verify frozen
+        for name, param in model.named_parameters():
+            print(name, param.requires_grad)
 
     return model, optimizer, scheduler, start, epochs, train_losses, valid_losses
 
@@ -229,6 +248,7 @@ def train(
                         "epoch": epoch,
                         "model_state_dict": model.state_dict(),  # model.state_dict() if using only one GPU ; model.module.state_dict() if parallel
                         "optimizer_state_dict": optimizer.state_dict(),
+                        "scheduler_state_dict": scheduler.state_dict(),
                         "train_loss": train_loss,
                         "validation_loss": valid_loss,
                         "epochs": epochs,
@@ -287,110 +307,10 @@ def train(
         torch.cuda.empty_cache()
 
 
-def test(
-    model,
-    test_loader,
-    warp,
-    criterion=nn.MSELoss(),
-    weight_correction_loss=0.8,
-    weight_reconstruction_loss=0.2,
-    mse_weight=0.8,
-    ssim_weight=0.2,
-):
-    print("Evaluating model")
-
-    images_directory_path = os.path.join(OUTPUT_DIR, "test_images")
-    os.makedirs(images_directory_path, exist_ok=True)
-
-    # Misc tensors to save for debugging
-    misc_path = os.path.join(OUTPUT_DIR, "misc")
-    os.makedirs(misc_path, exist_ok=True)
-    imgs_copy, flow_copy, brightness_copy, targets_copy = None, None, None, None
-
-    # Placeholders for displaying last batch of images
-    img_display = None
-    img_corr_display = None
-    target_display = None
-
-    model.eval()
-    test_loss = 0
-    with torch.no_grad():
-        for imgs, angles, targets, target_angles in test_loader:
-            imgs, angles, targets, target_angles = (
-                imgs.float().to(device),
-                angles.float().to(device),
-                targets.float().to(device),
-                target_angles.float().to(device),
-            )
-
-            flow_corr, bright_corr = model(imgs, target_angles)
-            img_corr = warp(imgs, flow_corr, bright_corr)
-            loss_correction_mse = misalignment_tolerant_mse_loss(
-                img_corr, targets, criterion
-            )
-            loss_correction_ssim = misalignment_tolerant_ssim_loss(img_corr, targets)
-
-            flow_reconstruction, bright_reconstruction = model(img_corr, angles)
-            img_reconstruction = warp(
-                img_corr, flow_reconstruction, bright_reconstruction
-            )
-
-            loss_reconstruction_mse = misalignment_tolerant_mse_loss(
-                img_reconstruction, imgs, criterion
-            )
-            loss_reconstruction_ssim = misalignment_tolerant_ssim_loss(
-                img_reconstruction, imgs
-            )
-
-            mse_loss = (weight_correction_loss * loss_correction_mse) + (
-                weight_reconstruction_loss * loss_reconstruction_mse
-            )
-
-            ssim_loss = (weight_correction_loss * loss_correction_ssim) + (
-                weight_reconstruction_loss * loss_reconstruction_ssim
-            )
-
-            loss = mse_loss * mse_weight + ssim_loss * ssim_weight
-
-            test_loss += loss.item()
-
-            img_display = imgs.clone()
-
-            imgs_copy = imgs.clone()
-            flow_copy = flow_corr.clone()
-            brightness_copy = bright_corr.clone()
-            targets_copy = targets.clone()
-
-        # Save example images
-        img_corr_display = img_corr.clone()
-        target_display = targets.clone()
-        save_image(
-            img_display,
-            os.path.join(images_directory_path, f"img_og.png"),
-        )
-        save_image(
-            img_corr_display,
-            os.path.join(images_directory_path, f"img_corr.png"),
-        )
-        save_image(
-            target_display,
-            os.path.join(images_directory_path, f"targets.png"),
-        )
-
-        # Save misc tensors
-        torch.save(imgs_copy, os.path.join(misc_path, "imgs.pt"))
-        torch.save(flow_copy, os.path.join(misc_path, "flow.pt"))
-        torch.save(brightness_copy, os.path.join(misc_path, "brightness.pt"))
-        torch.save(targets_copy, os.path.join(misc_path, "targets.pt"))
-
-    test_loss /= len(test_loader)
-    print(f"Test Loss: {test_loss}")
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", "-c", type=str, default=None)
-    parser.add_argument("--eval_only", action="store_true", default=False)
+    parser.add_argument("--fine_tune", action="store_true", default=False)
 
     args = parser.parse_args()
 
@@ -403,33 +323,38 @@ if __name__ == "__main__":
         epochs,
         train_losses,
         valid_losses,
-    ) = get_model_optimizer(args.checkpoint)
-    input_filename_list = [
-        "imgs_1",
-        "imgs_2",
-        "imgs_3",
-        "imgs_4",
-        "imgs_5",
-        "imgs_6",
-        "imgs_7",
-        "imgs_8",
-        "imgs_9",
-        "imgs_10",
-        "imgs_11",
-        "imgs_12",
-        "imgs_13",
-        "imgs_14",
-        "imgs_15",
-        "imgs_16",
-        "imgs_17",
-        "imgs_18",
-        "imgs_19",
-        "imgs_20",
-    ]
-    input_file_path = os.path.join(os.getcwd(), "..", "dataset", "UnityEyes_Windows")
-    dataset_file_path = "./dataset"
-    train_loader, valid_loader = get_dataloader(
-        input_file_path, input_filename_list, dataset_file_path, 512, 16
+    ) = get_model_optimizer(args.checkpoint, args.fine_tune)
+
+    dataset_dir = os.path.join(os.getcwd(), "..", "dataset")
+    if args.fine_tune:
+        train_filename_list = utils.data.columbia.filename_list
+        train_file_path = os.path.join(dataset_dir, utils.data.columbia.dir_name)
+        train_loader = get_dataloader(
+            train_file_path,
+            train_filename_list,
+            batch_size=512,
+            num_workers=12,
+            dtype=utils.data.columbia.name,
+        )
+    else:
+        train_filename_list = utils.data.unityeyes.filename_list
+        train_file_path = os.path.join(dataset_dir, utils.data.unityeyes.dir_name)
+        train_loader = get_dataloader(
+            train_file_path,
+            train_filename_list,
+            batch_size=512,
+            num_workers=12,
+            dtype=utils.data.unityeyes.name,
+        )
+
+    valid_filename_list = utils.data.columbia.filename_list
+    valid_file_path = os.path.join(dataset_dir, utils.data.columbia.dir_name)
+    valid_loader = get_dataloader(
+        valid_file_path,
+        valid_filename_list,
+        batch_size=512,
+        num_workers=12,
+        dtype=utils.data.columbia.name,
     )
 
     # Train settings
@@ -439,31 +364,21 @@ if __name__ == "__main__":
     weight_correction_loss = 0.8
     weight_reconstruction_loss = 0.2
 
-    if not args.eval_only:
-        train(
-            eccmodel,
-            eccoptimizer,
-            eccscheduler,
-            train_loader,
-            valid_loader,
-            warp,
-            criterion,
-            start_epoch=start,
-            num_epochs=num_epochs,
-            weight_correction_loss=weight_correction_loss,
-            weight_reconstruction_loss=weight_reconstruction_loss,
-            mse_weight=1.0,
-            ssim_weight=0.0,
-            epochs=epochs,
-            train_losses=train_losses,
-            valid_losses=valid_losses,
-        )
-    # TODO: for now, reusing validation set as test set. Test set should be a natural dataset
-    test(
+    train(
         eccmodel,
+        eccoptimizer,
+        eccscheduler,
+        train_loader,
         valid_loader,
         warp,
         criterion,
-        weight_correction_loss,
-        weight_reconstruction_loss,
+        start_epoch=start,
+        num_epochs=num_epochs,
+        weight_correction_loss=weight_correction_loss,
+        weight_reconstruction_loss=weight_reconstruction_loss,
+        mse_weight=1.0,
+        ssim_weight=0.0,
+        epochs=epochs,
+        train_losses=train_losses,
+        valid_losses=valid_losses,
     )

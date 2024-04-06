@@ -4,6 +4,11 @@ import torch.nn.functional as F
 from pytorch_msssim import ssim
 
 
+def psnr(img1, img2):
+    mse = torch.mean((img1 - img2) ** 2)
+    return 20 * torch.log10(1.0 / torch.sqrt(mse))
+
+
 def misalignment_tolerant_mse_loss(output, target, criterion, slack=1):
     """
     Calculate a misalignment-tolerant mean squared error by considering a slack of 1 pixel,
@@ -48,6 +53,7 @@ def misalignment_tolerant_mse_loss(output, target, criterion, slack=1):
 
     return min_mse_loss
 
+
 def misalignment_tolerant_ssim_loss(output, target, slack=1):
     """
     Calculate a misalignment-tolerant SSIM by considering a slack of 1 pixel,
@@ -70,15 +76,18 @@ def misalignment_tolerant_ssim_loss(output, target, slack=1):
         for dx in range(-slack, slack + 1):
             # Shift 'output' and crop both 'output' and 'target' to exclude padding
             shifted_output = F.pad(output, (slack, slack, slack, slack), "constant", 0)
-            shifted_output = shifted_output[:, :, slack + dy:slack + dy + H, slack + dx:slack + dx + W]
-            shifted_loss = shifted_output[:, :, slack:H-slack, slack:W-slack]
+            shifted_output = shifted_output[
+                :, :, slack + dy : slack + dy + H, slack + dx : slack + dx + W
+            ]
+            shifted_loss = shifted_output[:, :, slack : H - slack, slack : W - slack]
 
             # Crop 'target' to match the dimensions of 'shifted_output'
             valid_start_y, valid_end_y = max(0, -dy), H + min(0, -dy)
             valid_start_x, valid_end_x = max(0, -dx), W + min(0, -dx)
-            valid_target = target[:, :, valid_start_y:valid_end_y, valid_start_x:valid_end_x]
-            target_loss = valid_target[:, :, slack:H-slack, slack:W-slack]
-
+            valid_target = target[
+                :, :, valid_start_y:valid_end_y, valid_start_x:valid_end_x
+            ]
+            target_loss = valid_target[:, :, slack : H - slack, slack : W - slack]
 
             # Calculate SSIM loss for the current shift
             ssim_loss = ssim(shifted_loss, target_loss, data_range=1, size_average=True)

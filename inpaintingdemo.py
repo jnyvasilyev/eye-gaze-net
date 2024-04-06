@@ -24,7 +24,9 @@ look_vec = torch.tensor(look_vec).float().to(device)
 
 OUTPUT_DIR = "./output"
 
-CHECKPOINT = 277
+# 277: first round synthetic training complete
+# 463: More synthetic training complete
+CHECKPOINT = 463
 
 
 def create_virtual_cam():
@@ -74,6 +76,8 @@ def create_virtual_cam():
                                 og_eye_patch, og_size, cut_coord = get_eye_patch(
                                     face, image, left
                                 )
+                                if left:
+                                    cv2.imshow("Eye", og_eye_patch)
                                 og_eye_patch = og_eye_patch.astype(np.float32) / 255.0
                                 if not left:
                                     # Flip eye image
@@ -99,6 +103,9 @@ def create_virtual_cam():
                                 if not left:
                                     # Flip eye back
                                     eye_corr = cv2.flip(eye_corr, 1)
+
+                                if left:
+                                    cv2.imshow("Eye corr", eye_corr)
 
                                 image[
                                     cut_coord[0] : cut_coord[0] + og_size[0],
