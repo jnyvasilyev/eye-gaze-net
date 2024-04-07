@@ -49,8 +49,8 @@ class UnityDataset(Dataset):
     def __getitem__(self, idx):
         fn_in, fn_out = self.pairs[idx]
 
-        X_img, X_angle = get_img_vec(fn_in)
-        y_img, y_angle = get_img_vec(fn_out)
+        X_img, X_angle, X_head = get_img_vec(fn_in)
+        y_img, y_angle, y_head = get_img_vec(fn_out)
 
         # Augment the data
         if self.augment:
@@ -58,7 +58,7 @@ class UnityDataset(Dataset):
 
         # plt_show_image(X_img, y_img)
 
-        return X_img, X_angle, y_img, y_angle
+        return X_img, X_angle, X_head, y_img, y_angle, y_head
 
 
 def augment_img(X_img, X_angle, y_img, y_angle):
@@ -67,8 +67,8 @@ def augment_img(X_img, X_angle, y_img, y_angle):
     Augmentation includes additive noise, color jitter, and Gaussian blur
     Augmentations are applied in random order and magnitude
     """
-    ADD_NOISE_STD = [0.0, 0.05, 0.075]
-    BLUR_KERNEL_SIZES = [1, 3, 5]
+    ADD_NOISE_STD = [0.0, 0.025, 0.05, 0.075]
+    BLUR_KERNEL_SIZES = [1, 3, 5, 7]
 
     # Additive noise
     noise = torch.randn_like(X_img) * random.choice(ADD_NOISE_STD)
@@ -147,13 +147,18 @@ def get_img_vec(filename):
     Preprocess and image and return the cropped img and angle vector
     """
     # print(f"Reading {filename}")
+    data = torch.load(filename + ".pt")
 
-    img = torch.load(filename + "_img.pt")
-    vec = torch.load(filename + "_vec.pt")
+    img = data["img"]
+    vec = data["vec"]
+    head = data["head"]
+
+    # img = torch.load(filename + "_img.pt")
+    # vec = torch.load(filename + "_vec.pt")
 
     # print(f"Done reading {filename}")
 
-    return img, vec
+    return img, vec, head
 
 
 def get_filename_info(filename):
@@ -189,6 +194,7 @@ def get_filename_info(filename):
         json_data["caruncle_2d"]
     )  # caruncle landmarks
     info_dict["iris"] = process_json_list(json_data["iris_2d"])  # iris landmarks
+    info_dict["head_pose"] = np.array(eval(json_data["head_pose"]))  # pitch, yaw, roll
     json_data_file.close()
 
     return info_dict
@@ -217,6 +223,7 @@ def get_filename_info_columbia(filename):
 
     pitchyaw = np.array([[info_dict["V"], info_dict["H"]]])
     info_dict["look_vec"] = np.squeeze(pitchyaw_to_vector(pitchyaw))
+    info_dict["head_pose"] = np.array([0.0, info_dict["ID"], 0.0])  # pitch, yaw, roll
 
     return info_dict
 
@@ -298,28 +305,38 @@ def process_image(info_dict, output_file_path):
     vec_tensor = torch.tensor(vec)
     vec_tensor_right = torch.tensor(vec_right)
 
+    # Preprocess head pose
+    head_info = info_dict["head_pose"]
+    # Normalize
+    # pitch: 90->0->270 to -90->90
+    pitch = head_info[0]
+    if pitch > 180:
+        pitch -= 360
+    pitch = -pitch
+    # yaw: 90->270 to -90->90
+    yaw = head_info[1]
+    yaw -= 180
+
+    head = np.array([pitch, yaw])
+    head_right = np.array([pitch, -yaw])
+    head = np.tile(head[:, np.newaxis, np.newaxis], (1, 32, 64))
+    head_right = np.tile(head_right[:, np.newaxis, np.newaxis], (1, 32, 64))
+    head_tensor = torch.tensor(head)
+    head_tensor_right = torch.tensor(head_right)
+
     # Save the image and vector
-    # TODO: make these one file
     os.makedirs(output_file_path, exist_ok=True)
     filename = info_dict["filename"]
     torch.save(
-        img_tensor,
-        os.path.join(output_file_path, filename + "_img.pt"),
-    )
-    torch.save(
-        vec_tensor,
-        os.path.join(output_file_path, filename + "_vec.pt"),
+        {"img": img_tensor, "vec": vec_tensor, "head": head_tensor},
+        os.path.join(output_file_path, filename + ".pt"),
     )
 
     # Save right eye image and vector
     os.makedirs(output_file_path + "_right", exist_ok=True)
     torch.save(
-        img_tensor_right,
-        os.path.join(output_file_path + "_right", filename + "_img.pt"),
-    )
-    torch.save(
-        vec_tensor_right,
-        os.path.join(output_file_path + "_right", filename + "_vec.pt"),
+        {"img": img_tensor_right, "vec": vec_tensor_right, "head": head_tensor_right},
+        os.path.join(output_file_path + "_right", filename + ".pt"),
     )
 
 
@@ -356,32 +373,29 @@ def process_image_columbia(info_dict, output_file_path):
                     vec = np.tile(vec[:, np.newaxis, np.newaxis], (1, 32, 64))
                     vec_tensor = torch.tensor(vec)
 
+                    # Preprocess head pose
+                    head_info = info_dict["head_pose"]
+                    pitch = head_info[0]
+                    yaw = head_info[1]
+
+                    head = np.array([pitch, yaw])
+                    head = np.tile(head[:, np.newaxis, np.newaxis], (1, 32, 64))
+                    head_tensor = torch.tensor(head)
+
                     # Save the image and vector
                     # TODO: make these one file
                     filename = info_dict["filename"]
                     if left:
                         os.makedirs(os.path.join(output_file_path), exist_ok=True)
                         torch.save(
-                            img_tensor,
-                            os.path.join(output_file_path, filename + "_img.pt"),
-                        )
-                        torch.save(
-                            vec_tensor,
-                            os.path.join(output_file_path, filename + "_vec.pt"),
+                            {"img": img_tensor, "vec": vec_tensor, "head": head_tensor},
+                            os.path.join(output_file_path, filename + ".pt"),
                         )
                     else:
                         os.makedirs(output_file_path + "_right", exist_ok=True)
                         torch.save(
-                            img_tensor,
-                            os.path.join(
-                                output_file_path + "_right", filename + "_img.pt"
-                            ),
-                        )
-                        torch.save(
-                            vec_tensor,
-                            os.path.join(
-                                output_file_path + "_right", filename + "_vec.pt"
-                            ),
+                            {"img": img_tensor, "vec": vec_tensor, "head": head_tensor},
+                            os.path.join(output_file_path + "_right", filename + ".pt"),
                         )
 
 
@@ -613,13 +627,19 @@ if __name__ == "__main__":
 
     with profile(activities=[ProfilerActivity.CPU], profile_memory=True) as prof:
         with record_function("load batch"):
-            for imgs, angles, targets, target_angles in tqdm(valid_loader):
-                imgs, angles, targets, target_angles = (
+            for imgs, angles, heads, targets, target_angles, target_heads in tqdm(
+                train_loader
+            ):
+                imgs, angles, heads, targets, target_angles, target_heads = (
                     imgs.float().to(device),
                     angles.float().to(device),
+                    heads.float().to(device),
                     targets.float().to(device),
                     target_angles.float().to(device),
+                    target_heads.float().to(device),
                 )
+                print(heads)
+                print(target_heads)
                 plt_show_image(imgs[0], targets[0])
 
                 # break
