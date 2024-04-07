@@ -30,7 +30,7 @@ import utils.data.columbia
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-OUTPUT_DIR = "./output2"
+OUTPUT_DIR = "./output3_head"
 
 # os.environ["TORCH_BOTTLENECK"] = "1"
 
@@ -124,15 +124,19 @@ def train(
         epoch_start_time = time.time()
         model.train()
         train_loss = 0
-        for imgs, angles, targets, target_angles in tqdm(train_loader):
-            imgs, angles, targets, target_angles = (
+        for imgs, angles, heads, targets, target_angles, target_heads in tqdm(
+            train_loader
+        ):
+            imgs, angles, heads, targets, target_angles, target_heads = (
                 imgs.float().to(device),
                 angles.float().to(device),
+                heads.float().to(device),
                 targets.float().to(device),
                 target_angles.float().to(device),
+                target_heads.float().to(device),
             )
 
-            flow_corr, bright_corr = model(imgs, target_angles)
+            flow_corr, bright_corr = model(imgs, target_angles, heads)
             img_corr = warp(imgs, flow_corr, bright_corr)
 
             # print(img_corr.shape)
@@ -147,7 +151,7 @@ def train(
             )
             loss_correction_ssim = misalignment_tolerant_ssim_loss(img_corr, targets)
 
-            flow_reconstruction, bright_reconstruction = model(img_corr, angles)
+            flow_reconstruction, bright_reconstruction = model(img_corr, angles, heads)
             img_reconstruction = warp(
                 img_corr, flow_reconstruction, bright_reconstruction
             )
@@ -183,15 +187,24 @@ def train(
         model.eval()
         with torch.no_grad():
             valid_loss = 0
-            for imgs, angles, targets, target_angles in valid_loader:
-                imgs, angles, targets, target_angles = (
+            for (
+                imgs,
+                angles,
+                heads,
+                targets,
+                target_angles,
+                target_heads,
+            ) in valid_loader:
+                imgs, angles, heads, targets, target_angles, target_heads = (
                     imgs.float().to(device),
                     angles.float().to(device),
+                    heads.float().to(device),
                     targets.float().to(device),
                     target_angles.float().to(device),
+                    target_heads.float().to(device),
                 )
 
-                flow_corr, bright_corr = model(imgs, target_angles)
+                flow_corr, bright_corr = model(imgs, target_angles, heads)
                 img_corr = warp(imgs, flow_corr, bright_corr)
 
                 loss_correction_mse = misalignment_tolerant_mse_loss(
@@ -201,7 +214,9 @@ def train(
                     img_corr, targets
                 )
 
-                flow_reconstruction, bright_reconstruction = model(img_corr, angles)
+                flow_reconstruction, bright_reconstruction = model(
+                    img_corr, angles, heads
+                )
                 img_reconstruction = warp(
                     img_corr, flow_reconstruction, bright_reconstruction
                 )
@@ -333,7 +348,7 @@ if __name__ == "__main__":
             train_file_path,
             train_filename_list,
             batch_size=512,
-            num_workers=12,
+            num_workers=8,
             dtype=utils.data.columbia.name,
         )
     else:
@@ -343,7 +358,7 @@ if __name__ == "__main__":
             train_file_path,
             train_filename_list,
             batch_size=512,
-            num_workers=12,
+            num_workers=8,
             dtype=utils.data.unityeyes.name,
         )
 
@@ -353,7 +368,7 @@ if __name__ == "__main__":
         valid_file_path,
         valid_filename_list,
         batch_size=512,
-        num_workers=12,
+        num_workers=8,
         dtype=utils.data.columbia.name,
     )
 
@@ -376,8 +391,8 @@ if __name__ == "__main__":
         num_epochs=num_epochs,
         weight_correction_loss=weight_correction_loss,
         weight_reconstruction_loss=weight_reconstruction_loss,
-        mse_weight=1.0,
-        ssim_weight=0.0,
+        mse_weight=0.8,
+        ssim_weight=0.2,
         epochs=epochs,
         train_losses=train_losses,
         valid_losses=valid_losses,
