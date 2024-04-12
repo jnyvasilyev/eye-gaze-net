@@ -348,7 +348,7 @@ if __name__ == "__main__":
             train_file_path,
             train_filename_list,
             batch_size=512,
-            num_workers=8,
+            num_workers=12,
             dtype=utils.data.columbia.name,
         )
     else:
@@ -358,7 +358,7 @@ if __name__ == "__main__":
             train_file_path,
             train_filename_list,
             batch_size=512,
-            num_workers=8,
+            num_workers=12,
             dtype=utils.data.unityeyes.name,
         )
 
@@ -368,7 +368,7 @@ if __name__ == "__main__":
         valid_file_path,
         valid_filename_list,
         batch_size=512,
-        num_workers=8,
+        num_workers=12,
         dtype=utils.data.columbia.name,
     )
 
@@ -391,8 +391,8 @@ if __name__ == "__main__":
         num_epochs=num_epochs,
         weight_correction_loss=weight_correction_loss,
         weight_reconstruction_loss=weight_reconstruction_loss,
-        mse_weight=0.8,
-        ssim_weight=0.2,
+        mse_weight=1.0,
+        ssim_weight=0.0,
         epochs=epochs,
         train_losses=train_losses,
         valid_losses=valid_losses,
