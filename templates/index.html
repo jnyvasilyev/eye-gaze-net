@@ -2,9 +2,29 @@
 <html>
 <head>
     <title>Video Feed</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        function toggleModel() {
+            $.post("/toggle_model", function() {
+                location.reload();
+            });
+        }
+    </script>
 </head>
 <body>
     <h1>Live Video Feed</h1>
-    <img src="http://localhost:5000/video_feed" />
+    <button onclick="toggleModel()">Toggle Model</button>
+    <img src="http://localhost:5000/model_video_feed" style="
+        width: 50%;
+        height: auto;
+        display: block;
+        margin: 0 auto;
+    " />
+    <img src="http://localhost:5000/original_video_feed" style="
+        width: 50%;
+        height: auto;
+        display: block;
+        margin: 0 auto;
+    " />
 </body>
 </html>
