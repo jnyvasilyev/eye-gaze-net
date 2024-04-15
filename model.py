@@ -94,6 +94,7 @@ class ECCNet(nn.Module):
         x1 = F.max_pool2d(x1, 2)
         x2 = self.conv_block2(x1)
         x2 = F.max_pool2d(x2, 2)
+        # After this, freeze for fine tuning
         x3 = self.conv_block3(x2)
         x3 = F.max_pool2d(x3, 2)
         x4 = self.conv_block4(x3)
