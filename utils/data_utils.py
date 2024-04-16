@@ -147,9 +147,12 @@ def get_img_vec(filename):
     Preprocess and image and return the cropped img and angle vector
     """
     # print(f"Reading {filename}")
-
-    img = torch.load(filename + "_img.pt")
-    vec = torch.load(filename + "_vec.pt")
+    data = torch.load(filename + ".pt")
+    # img = torch.load(filename + "_img.pt")
+    # vec = torch.load(filename + "_vec.pt")
+    img = data["img"]
+    vec = data["vec"]
+    head = data["head"]
 
     # print(f"Done reading {filename}")
 

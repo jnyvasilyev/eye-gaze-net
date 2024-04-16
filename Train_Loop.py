@@ -30,7 +30,7 @@ import utils.data.columbia
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-OUTPUT_DIR = "./output2"
+OUTPUT_DIR = "./output2_right"
 
 # os.environ["TORCH_BOTTLENECK"] = "1"
 
@@ -311,6 +311,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", "-c", type=str, default=None)
     parser.add_argument("--fine_tune", action="store_true", default=False)
+    parser.add_argument("--right", action="store_true", default=False)
 
     args = parser.parse_args()
 
@@ -335,6 +336,7 @@ if __name__ == "__main__":
             batch_size=512,
             num_workers=12,
             dtype=utils.data.columbia.name,
+            left=not args.right,
         )
     else:
         train_filename_list = utils.data.unityeyes.filename_list
@@ -345,6 +347,7 @@ if __name__ == "__main__":
             batch_size=512,
             num_workers=12,
             dtype=utils.data.unityeyes.name,
+            left=not args.right,
         )
 
     valid_filename_list = utils.data.columbia.filename_list
@@ -355,6 +358,7 @@ if __name__ == "__main__":
         batch_size=512,
         num_workers=12,
         dtype=utils.data.columbia.name,
+        left=not args.right,
     )
 
     # Train settings

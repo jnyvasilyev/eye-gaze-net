@@ -22,11 +22,13 @@ look_vec = np.array([[0.0, 0.0]])
 look_vec = np.tile(look_vec[:, :, np.newaxis, np.newaxis], (1, 1, 32, 64))
 look_vec = torch.tensor(look_vec).float().to(device)
 
-OUTPUT_DIR = "./output"
+OUTPUT_DIR_L = "./output"
+OUTPUT_DIR_R = "./output2_right"
 
 # 277: first round synthetic training complete
 # 463: More synthetic training complete
-CHECKPOINT = 463
+CHECKPOINT_L = 463
+CHECKPOINT_R = 520
 
 
 def create_virtual_cam():
@@ -38,11 +40,21 @@ def create_virtual_cam():
             width=frame1.shape[1], height=frame1.shape[0], fps=20
         ) as cam:
             # Initialize ECCNet
-            model = ECCNet().to(device)
-            ckpt_path = os.path.join(OUTPUT_DIR, f"checkpoints/ckpt_{CHECKPOINT}.pt")
+            model_l = ECCNet().to(device)
+            ckpt_path = os.path.join(
+                OUTPUT_DIR_L, f"checkpoints/ckpt_{CHECKPOINT_L}.pt"
+            )
             checkpoint = torch.load(ckpt_path, map_location=torch.device("cpu"))
-            model.load_state_dict(checkpoint["model_state_dict"])
-            model.eval()
+            model_l.load_state_dict(checkpoint["model_state_dict"])
+            model_l.eval()
+
+            model_r = ECCNet().to(device)
+            ckpt_path = os.path.join(
+                OUTPUT_DIR_R, f"checkpoints/ckpt_{CHECKPOINT_R}.pt"
+            )
+            checkpoint = torch.load(ckpt_path, map_location=torch.device("cpu"))
+            model_r.load_state_dict(checkpoint["model_state_dict"])
+            model_r.eval()
 
             warp = WarpImageWithFlowAndBrightness(torch.zeros((1, 3, 32, 64)))
 
@@ -72,6 +84,10 @@ def create_virtual_cam():
                         # Apply ECCNet to image
                         with torch.no_grad():
                             for left in [True, False]:
+                                if left:
+                                    model = model_l
+                                else:
+                                    model = model_r
                                 # Get eye image patch
                                 og_eye_patch, og_size, cut_coord = get_eye_patch(
                                     face, image, left
@@ -79,9 +95,9 @@ def create_virtual_cam():
                                 if left:
                                     cv2.imshow("Eye", og_eye_patch)
                                 og_eye_patch = og_eye_patch.astype(np.float32) / 255.0
-                                if not left:
-                                    # Flip eye image
-                                    og_eye_patch = cv2.flip(og_eye_patch, 1)
+                                # if not left:
+                                #     # Flip eye image
+                                #     og_eye_patch = cv2.flip(og_eye_patch, 1)
                                 eye_patch = (
                                     torch.tensor(og_eye_patch).float().to(device)
                                 )
@@ -100,9 +116,9 @@ def create_virtual_cam():
                                 eye_corr = cv2.resize(
                                     eye_corr, (og_size[1], og_size[0])
                                 )
-                                if not left:
-                                    # Flip eye back
-                                    eye_corr = cv2.flip(eye_corr, 1)
+                                # if not left:
+                                #     # Flip eye back
+                                #     eye_corr = cv2.flip(eye_corr, 1)
 
                                 if left:
                                     cv2.imshow("Eye corr", eye_corr)
