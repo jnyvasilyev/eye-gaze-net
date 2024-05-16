@@ -2,4 +2,4 @@ This repo is for the AI model to redirect eye gaze. To integrate with the web co
 
 https://github.com/yamakov03/conference-webrtc/tree/viewerFocus
 
-Here's our senior design showcase [video](https://youtu.be/LL7fj7i5Vsk)
+Here's our senior design showcase [video](https://youtu.be/LL7fj7i5Vsk?t=68)
